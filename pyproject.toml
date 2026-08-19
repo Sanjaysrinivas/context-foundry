@@ -1,0 +1,47 @@
+[project]
+name = "local-rag"
+version = "0.1.0"
+description = "Zero-cost, provider-swappable RAG with Ollama and Qdrant"
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT"
+authors = [{ name = "Sanjay Srinivas" }]
+dependencies = [
+  "fastapi>=0.116",
+  "httpx>=0.28",
+  "pypdf>=6.0",
+  "python-multipart>=0.0.20",
+  "qdrant-client>=1.18",
+  "uvicorn[standard]>=0.35",
+]
+
+[project.scripts]
+local-rag = "local_rag.api:main"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/local_rag"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+  "unit: fast tests with no external services",
+  "integration: tests that exercise local infrastructure",
+]
+
+[dependency-groups]
+dev = [
+  "commitizen==4.17.0",
+  "mypy==2.3.0",
+  "nox==2026.7.11",
+  "pre-commit==4.6.1",
+  "pytest==9.1.1",
+  "pytest-asyncio>=1.1",
+  "pytest-cov>=7.0",
+  "python-semantic-release==10.6.1",
+  "ruff==0.16.0",
+]
