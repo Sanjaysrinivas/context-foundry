@@ -27,3 +27,4 @@ def test_local_qdrant_round_trip(tmp_path: Path) -> None:
 
     store.clear()
     assert store.search([1.0, 0.0], limit=1, threshold=0.1) == []
+    store.close()

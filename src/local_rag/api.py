@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
@@ -34,12 +36,23 @@ class QueryResponse(BaseModel):
     citations: list[CitationResponse]
 
 
-def create_app(
-    settings: Settings | None = None, service: RAGService | None = None
-) -> FastAPI:
+def create_app(settings: Settings | None = None, service: RAGService | None = None) -> FastAPI:
     configured = settings or Settings.from_env()
-    rag = service or build_service(configured)
-    app = FastAPI(title="Local RAG", version="0.1.0")
+    rag = service
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        nonlocal rag
+        rag = rag or build_service(configured)
+        yield
+        rag.close()
+
+    app = FastAPI(title="Local RAG", version="0.1.0", lifespan=lifespan)
+
+    def active_service() -> RAGService:
+        if rag is None:
+            raise RuntimeError("Application has not started")
+        return rag
 
     @app.exception_handler(RAGError)
     async def handle_rag_error(_request: Request, exc: RAGError) -> JSONResponse:
@@ -66,15 +79,13 @@ def create_app(
         limit = configured.max_upload_mb * 1024 * 1024
         content = await file.read(limit + 1)
         if len(content) > limit:
-            raise RAGError(
-                f"File exceeds the {configured.max_upload_mb} MB upload limit"
-            )
-        chunks = await rag.ingest(filename, content)
+            raise RAGError(f"File exceeds the {configured.max_upload_mb} MB upload limit")
+        chunks = await active_service().ingest(filename, content)
         return {"filename": filename, "chunks": chunks}
 
     @app.post("/api/query", response_model=QueryResponse)
     async def query(request: QueryRequest) -> QueryResponse:
-        result = await rag.ask(request.question)
+        result = await active_service().ask(request.question)
         return QueryResponse(
             answer=result.text,
             citations=[
@@ -90,7 +101,7 @@ def create_app(
 
     @app.delete("/api/documents")
     async def clear_documents() -> dict[str, str]:
-        rag.clear()
+        active_service().clear()
         return {"status": "cleared"}
 
     return app

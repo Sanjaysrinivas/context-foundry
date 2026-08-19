@@ -25,14 +25,15 @@ class FakeStore:
         assert len(chunks) == len(vectors)
         self.chunks = chunks
 
-    def search(
-        self, vector: list[float], limit: int, threshold: float
-    ) -> list[SearchResult]:
+    def search(self, vector: list[float], limit: int, threshold: float) -> list[SearchResult]:
         assert vector and limit == 4 and threshold == 0.25
         return self.matches
 
     def clear(self) -> None:
         self.chunks = []
+
+    def close(self) -> None:
+        pass
 
 
 def service(store: FakeStore, chat: FakeChat | None = None) -> RAGService:
