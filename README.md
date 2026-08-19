@@ -1,13 +1,13 @@
 # Local RAG
 
-[![CI](https://github.com/Sanjaysrinivas/local-rag/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/Sanjaysrinivas/local-rag/actions/workflows/ci.yml)
+[![CI](https://github.com/Sanjaysrinivas/context-foundry/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/Sanjaysrinivas/context-foundry/actions/workflows/ci.yml)
 [![Python 3.13](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Ollama](https://img.shields.io/badge/Ollama-local-111111)](https://ollama.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-65dbcc.svg)](LICENSE)
 
 A private-by-default retrieval-augmented generation application built with Python, Ollama, and embedded Qdrant. Upload local documents, retrieve semantically relevant passages, and generate grounded answers with visible citations—without a paid API or cloud database.
 
-**[Explore the interactive architecture](https://sanjaysrinivas.github.io/local-rag/)** · [Read the source HTML](docs/index.html) · [OpenAPI after startup](http://127.0.0.1:8000/docs)
+**[Explore the interactive architecture](https://sanjaysrinivas.github.io/context-foundry/)** · [Read the source HTML](docs/index.html) · [OpenAPI after startup](http://127.0.0.1:8000/docs)
 
 ## Why this project
 
@@ -70,8 +70,8 @@ ollama pull embeddinggemma
 ### 2. Run the app
 
 ```powershell
-git clone https://github.com/Sanjaysrinivas/local-rag.git
-cd local-rag
+git clone https://github.com/Sanjaysrinivas/context-foundry.git
+cd context-foundry
 uv sync --frozen
 Copy-Item .env.example .env
 uv run --env-file .env local-rag
@@ -200,7 +200,7 @@ See [SECURITY.md](SECURITY.md) for reporting and deployment guidance.
 | GitHub Actions and Pages | $0 within the public-repository allowances |
 | Cloud infrastructure | not used |
 
-Pulumi, AWS, hosted model APIs, authentication, background workers, reranking, and multi-user tenancy are deferred. They add cost or operational weight without improving this local portfolio baseline. The [architecture](https://sanjaysrinivas.github.io/local-rag/) lists the concrete triggers for each upgrade.
+Pulumi, AWS, hosted model APIs, authentication, background workers, reranking, and multi-user tenancy are deferred. They add cost or operational weight without improving this local portfolio baseline. The [architecture](https://sanjaysrinivas.github.io/context-foundry/) lists the concrete triggers for each upgrade.
 
 ## Evaluation and limitations
 
