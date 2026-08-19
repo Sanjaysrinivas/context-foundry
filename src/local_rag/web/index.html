@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local RAG</title>
+  <style>
+    :root { color-scheme: dark; --bg:#090d18; --panel:#131b2c; --line:#2a3852; --text:#eef3fb; --muted:#9caac1; --cyan:#65dbcc; --gold:#f4c96b; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; background:radial-gradient(circle at 15% 0,#123453,transparent 30rem),var(--bg); color:var(--text); font:16px/1.5 system-ui,sans-serif; }
+    main { width:min(100% - 2rem,900px); margin:auto; padding:4rem 0; }
+    h1 { margin:.2rem 0; font-size:clamp(2.5rem,8vw,5rem); letter-spacing:-.06em; }
+    h2 { margin-top:0; }
+    p { color:var(--muted); }
+    .tag { color:var(--cyan); font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+    .grid { display:grid; grid-template-columns:1fr 1.4fr; gap:1rem; margin-top:2rem; }
+    section { padding:1.25rem; border:1px solid var(--line); border-radius:16px; background:#131b2ce8; }
+    label { display:block; margin:.8rem 0 .35rem; font-weight:650; }
+    input, textarea, button { width:100%; border:1px solid var(--line); border-radius:10px; padding:.8rem; font:inherit; }
+    input, textarea { background:#0c1220; color:var(--text); }
+    textarea { min-height:115px; resize:vertical; }
+    button { margin-top:.75rem; background:var(--cyan); color:#071411; border:0; font-weight:800; cursor:pointer; }
+    button:disabled { opacity:.55; cursor:wait; }
+    #status { min-height:1.5rem; color:var(--gold); }
+    #answer { white-space:pre-wrap; color:var(--text); }
+    .citation { margin-top:.75rem; padding:.8rem; border-left:3px solid var(--cyan); background:#0c1220; }
+    .citation small { color:var(--cyan); }
+    @media(max-width:700px){ .grid{grid-template-columns:1fr} main{padding-top:2rem} }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="tag">Private by default · powered locally</div>
+    <h1>Local RAG</h1>
+    <p>Index a PDF, Markdown, or text file, then ask questions grounded in retrieved passages.</p>
+    <div class="grid">
+      <section>
+        <h2>1. Add knowledge</h2>
+        <form id="upload-form">
+          <label for="file">Document</label>
+          <input id="file" type="file" accept=".pdf,.md,.txt" required>
+          <button type="submit">Index document</button>
+        </form>
+      </section>
+      <section>
+        <h2>2. Ask with evidence</h2>
+        <form id="query-form">
+          <label for="question">Question</label>
+          <textarea id="question" maxlength="2000" placeholder="What does the document say about…?" required></textarea>
+          <button type="submit">Retrieve and answer</button>
+        </form>
+      </section>
+    </div>
+    <p id="status" role="status" aria-live="polite"></p>
+    <section id="result" hidden>
+      <h2>Answer</h2><div id="answer"></div>
+      <h3>Retrieved evidence</h3><div id="citations"></div>
+    </section>
+  </main>
+  <script>
+    const status = document.querySelector('#status');
+    const result = document.querySelector('#result');
+    const answer = document.querySelector('#answer');
+    const citations = document.querySelector('#citations');
+
+    async function request(url, options) {
+      const response = await fetch(url, options);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || 'Request failed');
+      return data;
+    }
+
+    document.querySelector('#upload-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = event.target.querySelector('button');
+      const form = new FormData();
+      form.append('file', document.querySelector('#file').files[0]);
+      button.disabled = true; status.textContent = 'Embedding and indexing…';
+      try {
+        const data = await request('/api/documents', {method:'POST', body:form});
+        status.textContent = `Indexed ${data.filename} as ${data.chunks} chunks.`;
+      } catch (error) { status.textContent = error.message; }
+      finally { button.disabled = false; }
+    });
+
+    document.querySelector('#query-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = event.target.querySelector('button');
+      button.disabled = true; status.textContent = 'Retrieving evidence and generating…';
+      result.hidden = true;
+      try {
+        const data = await request('/api/query', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({question:document.querySelector('#question').value})
+        });
+        answer.textContent = data.answer; citations.replaceChildren();
+        for (const item of data.citations) {
+          const node = document.createElement('div'); node.className = 'citation';
+          const meta = document.createElement('small');
+          meta.textContent = `${item.source} · page ${item.page} · score ${item.score.toFixed(3)}`;
+          const text = document.createElement('div'); text.textContent = item.text;
+          node.append(meta, text); citations.append(node);
+        }
+        result.hidden = false; status.textContent = '';
+      } catch (error) { status.textContent = error.message; }
+      finally { button.disabled = false; }
+    });
+  </script>
+</body>
+</html>

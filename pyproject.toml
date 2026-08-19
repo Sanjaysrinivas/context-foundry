@@ -1,0 +1,80 @@
+[project]
+name = "local-rag"
+version = "0.1.0"
+description = "Zero-cost, provider-swappable RAG with Ollama and Qdrant"
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT"
+authors = [{ name = "Sanjay Srinivas" }]
+dependencies = [
+  "fastapi>=0.116",
+  "httpx>=0.28",
+  "pypdf>=6.0",
+  "python-multipart>=0.0.20",
+  "qdrant-client>=1.18",
+  "uvicorn[standard]>=0.35",
+]
+
+[project.scripts]
+local-rag = "local_rag.api:main"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/local_rag"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+  "unit: fast tests with no external services",
+  "integration: tests that exercise local infrastructure",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["src", "tests"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version_provider = "pep621"
+tag_format = "v$version"
+update_changelog_on_bump = false
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+tag_format = "v{version}"
+allow_zero_version = true
+commit_message = "chore(release): {version}"
+build_command = "uv build"
+
+[tool.semantic_release.branches.main]
+match = "main"
+prerelease = false
+
+[tool.semantic_release.changelog.default_templates]
+changelog_file = "CHANGELOG.md"
+
+[dependency-groups]
+dev = [
+  "commitizen==4.17.0",
+  "mypy==2.3.0",
+  "nox==2026.7.11",
+  "pre-commit==4.6.1",
+  "pytest==9.1.1",
+  "pytest-asyncio>=1.1",
+  "pytest-cov>=7.0",
+  "pyyaml>=6.0.2",
+  "python-semantic-release==10.6.1",
+  "ruff==0.16.0",
+]
