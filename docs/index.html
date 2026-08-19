@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Architecture for Local RAG, an Ollama-first retrieval-augmented generation project.">
+  <title>Local RAG — Architecture</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1020;
+      --panel: #121a2f;
+      --panel-2: #18233d;
+      --text: #e8edf7;
+      --muted: #9eabc4;
+      --line: #2a3858;
+      --cyan: #64d8cb;
+      --gold: #f3c969;
+      --violet: #b9a5ff;
+      --green: #8bdfa5;
+      --max: 1120px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 15% 0%, #153257 0, transparent 32rem),
+        radial-gradient(circle at 100% 20%, #281d52 0, transparent 26rem),
+        var(--bg);
+      color: var(--text);
+      font: 16px/1.65 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    a { color: var(--cyan); }
+    code { color: var(--gold); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .wrap { width: min(calc(100% - 2rem), var(--max)); margin: auto; }
+    header { padding: 5rem 0 3rem; }
+    .eyebrow { color: var(--cyan); font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+    h1 { max-width: 850px; margin: .35rem 0 1rem; font-size: clamp(3rem, 8vw, 6.5rem); line-height: .96; letter-spacing: -.06em; }
+    h2 { margin-top: 0; font-size: clamp(1.75rem, 4vw, 2.5rem); letter-spacing: -.035em; }
+    h3 { margin-bottom: .35rem; color: var(--cyan); }
+    .lead { max-width: 760px; color: var(--muted); font-size: 1.18rem; }
+    .pills { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 1.5rem; }
+    .pill { padding: .4rem .75rem; border: 1px solid var(--line); border-radius: 999px; background: #10182bd9; }
+    nav { position: sticky; top: 0; z-index: 3; backdrop-filter: blur(14px); background: #0b1020df; border-block: 1px solid var(--line); }
+    nav .wrap { display: flex; gap: 1rem; overflow-x: auto; padding-block: .75rem; }
+    nav a { color: var(--muted); text-decoration: none; white-space: nowrap; }
+    nav a:hover { color: var(--text); }
+    section { padding: 4.5rem 0; border-bottom: 1px solid var(--line); }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 1rem; }
+    .card { grid-column: span 4; padding: 1.25rem; border: 1px solid var(--line); border-radius: 16px; background: linear-gradient(145deg, #18233de8, #10172ade); }
+    .card p { color: var(--muted); }
+    .wide { grid-column: span 6; }
+    .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: .65rem; align-items: stretch; }
+    .node { min-height: 110px; display: grid; place-content: center; padding: 1rem; text-align: center; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+    .node strong { display: block; color: var(--cyan); }
+    .node small { color: var(--muted); }
+    .arrow { color: var(--gold); align-self: center; text-align: center; font-size: 1.5rem; }
+    .stack { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    table { width: 100%; border-collapse: collapse; background: #10172ac7; }
+    th, td { padding: .85rem; text-align: left; vertical-align: top; border: 1px solid var(--line); }
+    th { color: var(--cyan); background: var(--panel-2); }
+    td { color: var(--muted); }
+    .good { color: var(--green); }
+    .warn { color: var(--gold); }
+    .contract { padding: 1rem 1.2rem; border-left: 3px solid var(--violet); background: var(--panel); overflow-x: auto; }
+    pre { margin: 0; color: #d9e2f3; }
+    .decision { display: grid; grid-template-columns: 8rem 1fr; gap: 1rem; padding: 1rem 0; border-top: 1px solid var(--line); }
+    .decision b { color: var(--gold); }
+    footer { padding: 3rem 0 5rem; color: var(--muted); }
+    @media (max-width: 800px) {
+      header { padding-top: 3rem; }
+      .card, .wide { grid-column: 1 / -1; }
+      .flow { grid-template-columns: 1fr; }
+      .arrow { transform: rotate(90deg); }
+      .stack { grid-template-columns: 1fr; }
+      .decision { grid-template-columns: 1fr; gap: .2rem; }
+      .table-scroll { overflow-x: auto; }
+      table { min-width: 720px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="wrap">
+    <div class="eyebrow">Architecture · v1</div>
+    <h1>Local RAG</h1>
+    <p class="lead">A zero-cost, Ollama-first RAG system that makes retrieval visible, cites its evidence, and keeps the chat model and embedding model independently replaceable.</p>
+    <div class="pills" aria-label="Project qualities">
+      <span class="pill">100% local by default</span>
+      <span class="pill">Provider-swappable</span>
+      <span class="pill">Persistent vectors</span>
+      <span class="pill">Source citations</span>
+      <span class="pill">No framework lock-in</span>
+    </div>
+  </header>
+
+  <nav aria-label="Architecture sections">
+    <div class="wrap">
+      <a href="#goals">Goals</a><a href="#system">System</a><a href="#flows">Flows</a>
+      <a href="#stack">Stack</a><a href="#contracts">Contracts</a><a href="#data">Data</a>
+      <a href="#operations">Operations</a><a href="#delivery">Delivery</a><a href="#decisions">Decisions</a>
+    </div>
+  </nav>
+
+  <main>
+    <section id="goals">
+      <div class="wrap">
+        <h2>Goals and boundaries</h2>
+        <div class="grid">
+          <article class="card"><h3>Local first</h3><p>Documents, Qdrant storage, embeddings, and responses stay on the developer machine when Ollama is selected.</p></article>
+          <article class="card"><h3>Understandable</h3><p>The RAG loop is plain Python: load, chunk, embed, retrieve, assemble context, generate. No hidden agent graph.</p></article>
+          <article class="card"><h3>Replaceable edges</h3><p>Small protocols isolate chat and embeddings. Each can use a different provider without changing ingestion or retrieval.</p></article>
+          <article class="card"><h3>Portfolio ready</h3><p>A web UI, OpenAPI endpoints, architecture notes, tests, CI, releases, and observable source scores demonstrate the whole system.</p></article>
+          <article class="card"><h3>Not production SaaS</h3><p>No accounts, tenancy, distributed workers, or cloud database. These only belong after usage creates a real need.</p></article>
+          <article class="card"><h3>Zero required spend</h3><p>Ollama, Qdrant local mode, Python libraries, GitHub Actions, and GitHub Pages are available without a paid runtime.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="system">
+      <div class="wrap">
+        <h2>System context</h2>
+        <div class="flow" aria-label="System context diagram">
+          <div class="node"><strong>User</strong><small>browser or API client</small></div>
+          <div class="arrow" aria-hidden="true">→</div>
+          <div class="node"><strong>FastAPI app</strong><small>ingest, query, health, static UI</small></div>
+          <div class="arrow" aria-hidden="true">↔</div>
+          <div class="node"><strong>Local services</strong><small>Ollama HTTP API + embedded Qdrant</small></div>
+        </div>
+        <p class="lead">The FastAPI process owns orchestration. Ollama owns model inference. Qdrant runs in-process and persists beneath <code>data/qdrant</code>; no database server or Docker container is required.</p>
+      </div>
+    </section>
+
+    <section id="flows">
+      <div class="wrap">
+        <h2>Two explicit pipelines</h2>
+        <div class="stack">
+          <article class="card wide">
+            <h3>Ingestion</h3>
+            <ol>
+              <li>Validate file size and supported extension.</li>
+              <li>Extract text from PDF, Markdown, or plain text.</li>
+              <li>Split text into overlapping character chunks.</li>
+              <li>Embed chunks in batches with the configured embedding provider.</li>
+              <li>Create or validate the Qdrant collection dimension.</li>
+              <li>Upsert vectors with source, page, chunk index, and text payload.</li>
+            </ol>
+          </article>
+          <article class="card wide">
+            <h3>Question answering</h3>
+            <ol>
+              <li>Embed the question with the same embedding provider.</li>
+              <li>Run cosine similarity search for the top <code>RAG_TOP_K</code> chunks.</li>
+              <li>Reject weak matches below <code>RAG_SCORE_THRESHOLD</code>.</li>
+              <li>Build a bounded prompt containing labeled source excerpts.</li>
+              <li>Ask the configured chat provider to answer only from that context.</li>
+              <li>Return the answer plus structured citations and similarity scores.</li>
+            </ol>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="stack">
+      <div class="wrap">
+        <h2>Technology choices</h2>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Concern</th><th>Choice</th><th>Why it fits</th><th>Alternative / trigger</th></tr></thead>
+            <tbody>
+              <tr><td>Runtime</td><td>Python 3.13 + uv</td><td>Typed, cross-platform, reproducible lockfile, fast project commands.</td><td>Python 3.12 remains compatible if a dependency requires it.</td></tr>
+              <tr><td>HTTP/UI</td><td>FastAPI + vanilla HTML/CSS/JS</td><td>OpenAPI for free and one small browser client without a Node toolchain.</td><td>Add a frontend framework only when client state becomes complex.</td></tr>
+              <tr><td>Chat</td><td>Ollama <code>/api/chat</code></td><td>Local inference, no token bill, simple documented JSON API.</td><td>OpenAI-compatible adapter for another local or hosted endpoint.</td></tr>
+              <tr><td>Embeddings</td><td>Ollama <code>/api/embed</code> + <code>embeddinggemma</code></td><td>Batch inputs, local execution, and independent model configuration.</td><td>Swap only the embedding provider and rebuild the collection.</td></tr>
+              <tr><td>Vector database</td><td>Qdrant client local mode</td><td>Persistent vector search with the same client API available for a later server migration.</td><td>Run Qdrant server when concurrent writers or remote access matter.</td></tr>
+              <tr><td>Document parsing</td><td>stdlib + pypdf</td><td>Text/Markdown need no parser; one focused dependency handles PDFs.</td><td>Add format-specific loaders only for formats users actually need.</td></tr>
+              <tr><td>Model transport</td><td>HTTPX</td><td>One async HTTP client covers Ollama and OpenAI-compatible endpoints.</td><td>Provider SDK only when it exposes required behavior missing from HTTP.</td></tr>
+              <tr><td>Quality</td><td>Ruff, mypy, pytest, nox, pre-commit</td><td>Fast local checks mirror CI; configuration lives in <code>pyproject.toml</code>.</td><td>None until project scale justifies more specialized tooling.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="contracts">
+      <div class="wrap">
+        <h2>Provider seams</h2>
+        <p class="lead">Swappability is two structural typing contracts, not a dependency-injection framework. Configuration selects one implementation for each contract at startup.</p>
+        <div class="contract"><pre><code>class EmbeddingProvider(Protocol):
+    async def embed(self, texts: list[str]) -&gt; list[list[float]]: ...
+
+class ChatProvider(Protocol):
+    async def answer(self, question: str, context: str) -&gt; str: ...</code></pre></div>
+        <div class="grid" style="margin-top: 1rem">
+          <article class="card wide"><h3>Default</h3><p><code>RAG_EMBEDDING_PROVIDER=ollama</code><br><code>RAG_CHAT_PROVIDER=ollama</code><br>Uses independently configured models against the local Ollama base URL.</p></article>
+          <article class="card wide"><h3>Optional</h3><p><code>openai-compatible</code> targets any compatible endpoint. Base URL, model, and API key are environment settings; neither OpenAI nor a paid account is required.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="data">
+      <div class="wrap">
+        <h2>Data and retrieval model</h2>
+        <div class="grid">
+          <article class="card wide"><h3>Vector</h3><p>The embedding is stored with cosine distance. Collection dimensionality is discovered from the first embedding and checked thereafter.</p></article>
+          <article class="card wide"><h3>Payload</h3><p><code>document_id</code>, <code>source</code>, <code>page</code>, <code>chunk_index</code>, <code>text</code>, and a content hash support citations and idempotent re-ingestion.</p></article>
+          <article class="card wide"><h3>Chunking</h3><p>Character-based chunks keep the dependency surface small and work across models. Defaults are configurable; a tokenizer-aware splitter is a measured future optimization.</p></article>
+          <article class="card wide"><h3>Consistency rule</h3><p>Changing the embedding model or provider requires rebuilding the collection. Mixing vector spaces produces invalid similarity results.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="operations">
+      <div class="wrap">
+        <h2>Runtime, privacy, and failure behavior</h2>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Area</th><th>Design</th></tr></thead>
+            <tbody>
+              <tr><td>Configuration</td><td>Environment variables with safe local defaults; <code>.env</code> is ignored and <code>.env.example</code> documents every setting.</td></tr>
+              <tr><td>Health</td><td><code>/health</code> reports application readiness and selected providers without exposing keys or document contents.</td></tr>
+              <tr><td>Privacy</td><td>Local Ollama mode sends no document data to a third party. Selecting a remote compatible endpoint is an explicit operator decision.</td></tr>
+              <tr><td>Prompt safety</td><td>Retrieved documents are untrusted data. The system prompt tells the model to ignore instructions inside context and answer only from evidence.</td></tr>
+              <tr><td>Input boundary</td><td>Extensions and upload size are validated; filenames are metadata only and never used as filesystem destinations.</td></tr>
+              <tr><td>Failure modes</td><td>Unavailable models, malformed documents, dimension changes, and empty retrieval return actionable API errors.</td></tr>
+              <tr><td>Observability</td><td>Structured application logs record request outcome, document/chunk counts, provider/model names, latency, and retrieval scores—never full document text.</td></tr>
+              <tr><td>Backup</td><td>Stop the app and copy <code>data/qdrant</code>. Source documents remain the canonical rebuild path.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="delivery">
+      <div class="wrap">
+        <h2>Delivery model</h2>
+        <div class="flow" aria-label="Branching strategy">
+          <div class="node"><strong>feature/*</strong><small>branch from dev</small></div>
+          <div class="arrow">→</div>
+          <div class="node"><strong>dev</strong><small>default integration branch</small></div>
+          <div class="arrow">→</div>
+          <div class="node"><strong>main</strong><small>release-ready history</small></div>
+        </div>
+        <div class="grid" style="margin-top: 1rem">
+          <article class="card"><h3>Pull requests</h3><p>CI checks formatting, typing, tests, and commit messages. Feature pull requests target <code>dev</code>; release pull requests target <code>main</code>.</p></article>
+          <article class="card"><h3>Versions</h3><p>Conventional Commits drive semantic versions. Pushes to <code>main</code> can update the changelog, tag the release, and create a GitHub Release.</p></article>
+          <article class="card"><h3>Documentation</h3><p>GitHub Pages publishes this static document at no cost. Application deployment remains local to preserve the zero-spend promise.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="decisions">
+      <div class="wrap">
+        <h2>Key decisions and upgrade triggers</h2>
+        <div class="decision"><b>Direct APIs</b><span>Skip LangChain and LlamaIndex. Add one only if its measured integrations remove more code than they introduce.</span></div>
+        <div class="decision"><b>Local Qdrant</b><span>Skip Docker and cloud storage. Move to Qdrant server when multiple processes, remote clients, or concurrent ingestion are required.</span></div>
+        <div class="decision"><b>Simple chunks</b><span>Start with overlapping characters. Add semantic or tokenizer-aware chunking after retrieval evaluation shows a weakness.</span></div>
+        <div class="decision"><b>No reranker</b><span>Vector similarity is the baseline. Add a local cross-encoder only if an evaluation set proves top-k precision is insufficient.</span></div>
+        <div class="decision"><b>No cloud IaC</b><span>Pulumi, AWS, and paid hosting conflict with the local zero-cost scope. The provider and vector-store seams preserve a migration path.</span></div>
+        <div class="decision"><b>Evaluation next</b><span>Initial tests prove deterministic plumbing with fakes. A curated question/evidence dataset becomes the next milestone after real documents exist.</span></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    <p>Local RAG architecture · designed for a clear, reproducible, zero-cost portfolio project.</p>
+  </footer>
+</body>
+</html>
