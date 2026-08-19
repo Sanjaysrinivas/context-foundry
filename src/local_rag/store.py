@@ -13,11 +13,11 @@ from local_rag.domain import Chunk, RAGError, SearchResult
 class VectorStore(Protocol):
     def upsert(self, chunks: list[Chunk], vectors: list[list[float]]) -> None: ...
 
-    def search(
-        self, vector: list[float], limit: int, threshold: float
-    ) -> list[SearchResult]: ...
+    def search(self, vector: list[float], limit: int, threshold: float) -> list[SearchResult]: ...
 
     def clear(self) -> None: ...
+
+    def close(self) -> None: ...
 
 
 class QdrantVectorStore:
@@ -28,9 +28,7 @@ class QdrantVectorStore:
 
     def upsert(self, chunks: list[Chunk], vectors: list[list[float]]) -> None:
         if not chunks or len(chunks) != len(vectors):
-            raise RAGError(
-                "Chunks and vectors must be non-empty and have equal lengths"
-            )
+            raise RAGError("Chunks and vectors must be non-empty and have equal lengths")
         dimension = len(vectors[0])
         if dimension == 0 or any(len(vector) != dimension for vector in vectors):
             raise RAGError("Embedding vectors must share a non-zero dimension")
@@ -51,9 +49,7 @@ class QdrantVectorStore:
         ]
         self.client.upsert(collection_name=self.collection, points=points, wait=True)
 
-    def search(
-        self, vector: list[float], limit: int, threshold: float
-    ) -> list[SearchResult]:
+    def search(self, vector: list[float], limit: int, threshold: float) -> list[SearchResult]:
         if not self.client.collection_exists(self.collection):
             return []
         response = self.client.query_points(
@@ -80,21 +76,21 @@ class QdrantVectorStore:
         if self.client.collection_exists(self.collection):
             self.client.delete_collection(self.collection)
 
+    def close(self) -> None:
+        self.client.close()
+
     def _ensure_collection(self, dimension: int) -> None:
         if not self.client.collection_exists(self.collection):
             self.client.create_collection(
                 collection_name=self.collection,
-                vectors_config=models.VectorParams(
-                    size=dimension, distance=models.Distance.COSINE
-                ),
+                vectors_config=models.VectorParams(size=dimension, distance=models.Distance.COSINE),
             )
             return
         info = self.client.get_collection(self.collection)
         vectors = info.config.params.vectors
-        existing_dimension = (
-            vectors.size if isinstance(vectors, models.VectorParams) else None
-        )
+        existing_dimension = vectors.size if isinstance(vectors, models.VectorParams) else None
         if existing_dimension != dimension:
             raise RAGError(
-                "Embedding dimension changed. Clear the collection before using a different embedding model."
+                "Embedding dimension changed. Clear the collection before using a "
+                "different embedding model."
             )

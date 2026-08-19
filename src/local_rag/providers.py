@@ -29,9 +29,7 @@ class OllamaEmbeddingProvider:
         self.timeout = timeout
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        data = await _post(
-            self.url, {"model": self.model, "input": texts}, self.timeout
-        )
+        data = await _post(self.url, {"model": self.model, "input": texts}, self.timeout)
         embeddings = data.get("embeddings")
         if not isinstance(embeddings, list) or len(embeddings) != len(texts):
             raise ProviderError("Ollama returned an invalid embedding response")
@@ -82,16 +80,12 @@ class OpenAICompatibleEmbeddingProvider:
         )
         items = data.get("data")
         if not isinstance(items, list) or len(items) != len(texts):
-            raise ProviderError(
-                "The compatible endpoint returned an invalid embedding response"
-            )
+            raise ProviderError("The compatible endpoint returned an invalid embedding response")
         try:
             ordered = sorted(items, key=lambda item: int(item["index"]))
             return [[float(value) for value in item["embedding"]] for item in ordered]
         except (KeyError, TypeError, ValueError) as exc:
-            raise ProviderError(
-                "The compatible endpoint returned malformed embeddings"
-            ) from exc
+            raise ProviderError("The compatible endpoint returned malformed embeddings") from exc
 
 
 class OpenAICompatibleChatProvider:
@@ -118,24 +112,14 @@ class OpenAICompatibleChatProvider:
             self.headers,
         )
         choices = data.get("choices")
-        if (
-            not isinstance(choices, list)
-            or not choices
-            or not isinstance(choices[0], dict)
-        ):
-            raise ProviderError(
-                "The compatible endpoint returned an invalid chat response"
-            )
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            raise ProviderError("The compatible endpoint returned an invalid chat response")
         message = choices[0].get("message")
         if not isinstance(message, dict):
-            raise ProviderError(
-                "The compatible endpoint returned an invalid chat response"
-            )
+            raise ProviderError("The compatible endpoint returned an invalid chat response")
         content = message.get("content")
         if not isinstance(content, str):
-            raise ProviderError(
-                "The compatible endpoint returned an empty chat response"
-            )
+            raise ProviderError("The compatible endpoint returned an empty chat response")
         return content
 
 

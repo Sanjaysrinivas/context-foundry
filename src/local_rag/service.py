@@ -60,3 +60,6 @@ class RAGService:
 
     def clear(self) -> None:
         self.store.clear()
+
+    def close(self) -> None:
+        self.store.close()

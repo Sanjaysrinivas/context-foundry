@@ -803,6 +803,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "python-semantic-release" },
+    { name = "pyyaml" },
     { name = "ruff" },
 ]
 
@@ -826,6 +827,7 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1.1" },
     { name = "pytest-cov", specifier = ">=7.0" },
     { name = "python-semantic-release", specifier = "==10.6.1" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "ruff", specifier = "==0.16.0" },
 ]
 

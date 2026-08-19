@@ -33,6 +33,38 @@ markers = [
   "integration: tests that exercise local infrastructure",
 ]
 
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["src", "tests"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version_provider = "pep621"
+tag_format = "v$version"
+update_changelog_on_bump = false
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+tag_format = "v{version}"
+allow_zero_version = true
+commit_message = "chore(release): {version}"
+build_command = "uv build"
+
+[tool.semantic_release.branches.main]
+match = "main"
+prerelease = false
+
+[tool.semantic_release.changelog.default_templates]
+changelog_file = "CHANGELOG.md"
+
 [dependency-groups]
 dev = [
   "commitizen==4.17.0",
@@ -42,6 +74,7 @@ dev = [
   "pytest==9.1.1",
   "pytest-asyncio>=1.1",
   "pytest-cov>=7.0",
+  "pyyaml>=6.0.2",
   "python-semantic-release==10.6.1",
   "ruff==0.16.0",
 ]

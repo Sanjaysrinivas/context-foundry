@@ -53,13 +53,9 @@ def chunk_pages(pages: list[Page], chunk_size: int, overlap: int) -> list[Chunk]
             if not excerpt:
                 continue
             stable_id = str(
-                uuid.uuid5(
-                    uuid.NAMESPACE_URL, f"{document_id}:{page.number}:{index}:{excerpt}"
-                )
+                uuid.uuid5(uuid.NAMESPACE_URL, f"{document_id}:{page.number}:{index}:{excerpt}")
             )
-            chunks.append(
-                Chunk(stable_id, document_id, page.source, page.number, index, excerpt)
-            )
+            chunks.append(Chunk(stable_id, document_id, page.source, page.number, index, excerpt))
             if start + chunk_size >= len(text):
                 break
     return chunks
