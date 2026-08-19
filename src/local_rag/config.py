@@ -31,9 +31,7 @@ class Settings:
             chat_provider=os.getenv("RAG_CHAT_PROVIDER", "ollama"),
             embedding_provider=os.getenv("RAG_EMBEDDING_PROVIDER", "ollama"),
             ollama_base_url=os.getenv("RAG_OLLAMA_BASE_URL", "http://localhost:11434"),
-            openai_base_url=os.getenv(
-                "RAG_OPENAI_BASE_URL", "http://localhost:1234/v1"
-            ),
+            openai_base_url=os.getenv("RAG_OPENAI_BASE_URL", "http://localhost:1234/v1"),
             openai_api_key=os.getenv("RAG_OPENAI_API_KEY", ""),
             chat_model=os.getenv("RAG_CHAT_MODEL", "llama3.2:3b"),
             embedding_model=os.getenv("RAG_EMBEDDING_MODEL", "embeddinggemma"),
@@ -51,10 +49,7 @@ class Settings:
 
     def validate(self) -> None:
         supported = {"ollama", "openai-compatible"}
-        if (
-            self.chat_provider not in supported
-            or self.embedding_provider not in supported
-        ):
+        if self.chat_provider not in supported or self.embedding_provider not in supported:
             msg = "providers must be 'ollama' or 'openai-compatible'"
             raise ValueError(msg)
         if self.chunk_size <= 0 or not 0 <= self.chunk_overlap < self.chunk_size:
