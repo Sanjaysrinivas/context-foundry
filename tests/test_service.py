@@ -21,9 +21,15 @@ class FakeChat:
 
 
 class FakeStore:
-    def __init__(self, matches: list[SearchResult] | None = None) -> None:
+    def __init__(
+        self,
+        matches: list[SearchResult] | None = None,
+        matches_by_query: dict[str, list[SearchResult]] | None = None,
+    ) -> None:
         self.chunks: list[Chunk] = []
         self.matches = matches or []
+        self.matches_by_query = matches_by_query or {}
+        self.queries: list[str] = []
 
     def replace(self, chunks: list[Chunk], vectors: list[list[float]]) -> None:
         assert len(chunks) == len(vectors)
@@ -39,7 +45,8 @@ class FakeStore:
     ) -> list[SearchResult]:
         assert vector and limit == 4 and threshold == 0.25
         assert query
-        return self.matches
+        self.queries.append(query)
+        return self.matches_by_query.get(query, self.matches)
 
     def list_documents(self) -> list[DocumentInfo]:
         if not self.chunks:
@@ -112,6 +119,49 @@ async def test_answer_skips_chat_without_evidence() -> None:
 
     assert result.citations == []
     assert "could not find" in result.text
+
+
+async def test_retrieve_covers_compound_question_parts() -> None:
+    validation = SearchResult("report.pdf", 8, "evidence support", 0.8, "doc")
+    anchors = SearchResult("report.pdf", 9, "source hash and page coordinates", 0.7, "doc")
+    chunk_ids = SearchResult("report.pdf", 9, "chunk IDs change", 0.6, "doc")
+    duplicate = SearchResult("report.pdf", 1, "stable evidence", 0.5, "doc")
+    queries = [
+        "List every automatic validation check",
+        "specify every stable evidence-anchor field",
+        "explain why chunk IDs cannot be gold labels",
+    ]
+    store = FakeStore(
+        matches_by_query={
+            queries[0]: [validation, duplicate],
+            queries[1]: [anchors, duplicate],
+            queries[2]: [chunk_ids, duplicate],
+        }
+    )
+    embeddings = FakeEmbeddings()
+    rag = RAGService(
+        embeddings,
+        FakeChat(),
+        store,
+        chunk_size=30,
+        chunk_overlap=5,
+        top_k=4,
+        score_threshold=0.25,
+    )
+
+    results = await rag.retrieve(
+        "List every automatic validation check, then specify every stable evidence-anchor "
+        "field and explain why chunk IDs cannot be gold labels"
+    )
+
+    assert store.queries == queries
+    assert [result.text for result in results] == [
+        "evidence support",
+        "source hash and page coordinates",
+        "chunk IDs change",
+        "stable evidence",
+    ]
+    assert embeddings.batch_sizes == [3]
 
 
 async def test_document_lifecycle() -> None:
