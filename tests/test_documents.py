@@ -1,3 +1,5 @@
+import hashlib
+
 import pymupdf
 import pytest
 
@@ -41,6 +43,7 @@ def test_pdf_extraction_preserves_pages_and_headings() -> None:
     pages = load_document("resume.pdf", content)
 
     assert [page.number for page in pages] == [1, 2]
+    assert pages[0].source_sha256 == hashlib.sha256(content).hexdigest()
     assert "# SKILLS" in pages[0].text
     assert "Python, PostgreSQL, AWS and Docker" in pages[0].text
     assert "# EXPERIENCE" in pages[1].text
@@ -66,6 +69,18 @@ def test_pdf_extraction_uses_ocr_for_image_only_pages() -> None:
     pages = load_document("scan.pdf", content)
 
     assert "SCANNED SKILLS: Python and AWS" in pages[0].text
+    assert pages[0].source_sha256 == hashlib.sha256(content).hexdigest()
+
+
+@pytest.mark.unit
+def test_raw_source_hash_is_independent_of_filename() -> None:
+    content = b"Stable source evidence"
+
+    first = chunk_pages(load_document("first.txt", content), chunk_size=50, overlap=0)
+    renamed = chunk_pages(load_document("renamed.txt", content), chunk_size=50, overlap=0)
+
+    assert first[0].document_id == renamed[0].document_id == hashlib.sha256(content).hexdigest()
+    assert first[0].source_sha256 == renamed[0].source_sha256
 
 
 @pytest.mark.unit

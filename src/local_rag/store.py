@@ -81,6 +81,7 @@ class QdrantVectorStore:
                     "page": chunk.page,
                     "chunk_index": chunk.index,
                     "text": chunk.text,
+                    "source_sha256": chunk.source_sha256,
                 },
             )
             for chunk, vector in zip(chunks, vectors, strict=True)
@@ -156,6 +157,7 @@ class QdrantVectorStore:
                     text=str(payload.get("text", "")),
                     score=score,
                     document_id=str(payload.get("document_id", "")),
+                    source_sha256=str(payload.get("source_sha256", "")),
                 )
             )
         return results
@@ -163,19 +165,25 @@ class QdrantVectorStore:
     def list_documents(self) -> list[DocumentInfo]:
         if not self.client.collection_exists(self.collection):
             return []
-        grouped: dict[str, tuple[str, int, set[int]]] = {}
+        grouped: dict[str, tuple[str, str, int, set[int]]] = {}
         for point in self._scroll():
             payload = cast(dict[str, Any], point.payload or {})
             document_id = str(payload.get("document_id", ""))
-            source, chunks, pages = grouped.get(
-                document_id, (str(payload.get("source", "unknown")), 0, set())
+            source, source_sha256, chunks, pages = grouped.get(
+                document_id,
+                (
+                    str(payload.get("source", "unknown")),
+                    str(payload.get("source_sha256", "")),
+                    0,
+                    set(),
+                ),
             )
             pages.add(int(payload.get("page", 1)))
-            grouped[document_id] = (source, chunks + 1, pages)
+            grouped[document_id] = (source, source_sha256, chunks + 1, pages)
         return sorted(
             (
-                DocumentInfo(document_id, source, chunks, len(pages))
-                for document_id, (source, chunks, pages) in grouped.items()
+                DocumentInfo(document_id, source, chunks, len(pages), source_sha256)
+                for document_id, (source, source_sha256, chunks, pages) in grouped.items()
             ),
             key=lambda item: item.source.lower(),
         )

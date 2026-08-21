@@ -92,7 +92,7 @@ curl -X POST http://127.0.0.1:8000/api/documents \
   -F "file=@notes.pdf"
 ```
 
-List indexed documents with `GET /api/documents`. The response includes each stable `document_id`, filename, page count, and chunk count.
+List indexed documents with `GET /api/documents`. The response includes each content-addressed `document_id`, raw-file `source_sha256`, filename, page count, and chunk count. Clear and re-index documents created before this field was introduced.
 
 Ask a grounded question:
 
@@ -113,7 +113,8 @@ The response keeps generation and retrieval separately inspectable:
       "source": "notes.pdf",
       "page": 4,
       "text": "Retrieved passage ...",
-      "score": 0.82
+      "score": 0.82,
+      "source_sha256": "0123456789abcdef..."
     }
   ]
 }
@@ -214,9 +215,9 @@ Pulumi, AWS, hosted model APIs, authentication, background workers, neural reran
 
 The baseline uses layout-aware PyMuPDF4LLM extraction, automatic local RapidOCR fallback for scanned pages, Markdown-aware recursive chunking, and lightweight dense/keyword score fusion. It does not use a neural reranker and does not support concurrent ingestion from multiple processes. These limits are documented so improvements can be driven by evidence.
 
-There is no generated “golden truth” for every chunk. During ingestion the app creates searchable chunks and metadata only. A separate, human-verified JSONL dataset defines questions, expected evidence, required answer facts, and unanswerable cases so retrieval and grounded-answer changes can be measured without teaching the system from its own output.
+There is no generated “golden truth” for every chunk. Ingestion now records the raw source SHA-256 and carries it through pages, chunks, document responses, and citations. A separate, versioned JSONL dataset anchors expected evidence to source hashes, pages, stable text, optional coordinates, and evidence groups. Only `approved_gold` cases enter release metrics; future automatically generated cases remain synthetic silver until reviewed.
 
-With the matching corpus indexed and the app running, execute `uv run local-rag-eval path\to\cases.jsonl`. See [docs/evaluation.md](docs/evaluation.md) for the schema, thresholds, and interpretation.
+The deterministic evaluator reports Hit@k, MRR, evidence recall, required-evidence coverage, nDCG, citation precision, fact coverage, evidence support, abstention errors, and p50/p95 latency. With the matching corpus indexed and the app running, execute `uv run local-rag-eval path\to\cases.jsonl`. See [docs/evaluation.md](docs/evaluation.md) for the schema, review states, gates, and versioning protocol.
 
 ## License
 

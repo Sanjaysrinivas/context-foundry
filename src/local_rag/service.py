@@ -47,7 +47,13 @@ class RAGService:
             vectors.extend(embedded)
         async with self._store_lock:
             await asyncio.to_thread(self.store.replace, chunks, vectors)
-        return DocumentInfo(chunks[0].document_id, filename, len(chunks), len(pages))
+        return DocumentInfo(
+            chunks[0].document_id,
+            filename,
+            len(chunks),
+            len(pages),
+            chunks[0].source_sha256,
+        )
 
     async def retrieve(
         self, question: str, document_ids: list[str] | None = None
