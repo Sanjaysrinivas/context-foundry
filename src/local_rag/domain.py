@@ -18,6 +18,7 @@ class Page:
     source: str
     number: int
     text: str
+    source_sha256: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +29,7 @@ class Chunk:
     page: int
     index: int
     text: str
+    source_sha256: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +39,7 @@ class SearchResult:
     text: str
     score: float
     document_id: str = ""
+    source_sha256: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +48,7 @@ class DocumentInfo:
     source: str
     chunks: int
     pages: int
+    source_sha256: str = ""
 
 
 @dataclass(frozen=True, slots=True)

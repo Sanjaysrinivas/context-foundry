@@ -45,7 +45,15 @@ class FakeStore:
         if not self.chunks:
             return []
         chunk = self.chunks[0]
-        return [DocumentInfo(chunk.document_id, chunk.source, len(self.chunks), 1)]
+        return [
+            DocumentInfo(
+                chunk.document_id,
+                chunk.source,
+                len(self.chunks),
+                1,
+                chunk.source_sha256,
+            )
+        ]
 
     def delete_document(self, document_id: str) -> bool:
         found = bool(self.chunks and self.chunks[0].document_id == document_id)
@@ -83,6 +91,8 @@ async def test_ingest_embeds_and_stores_chunks() -> None:
     assert document.pages == 1
     assert len(store.chunks) == 2
     assert store.chunks[0].source == "notes.txt"
+    assert document.source_sha256 == store.chunks[0].source_sha256
+    assert document.document_id == document.source_sha256
 
 
 async def test_answer_includes_retrieved_context() -> None:

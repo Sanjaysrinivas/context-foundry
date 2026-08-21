@@ -1,3 +1,4 @@
+import hashlib
 from dataclasses import replace
 
 from fastapi.testclient import TestClient
@@ -27,7 +28,13 @@ class FakeStore:
 
     def replace(self, chunks: list[Chunk], vectors: list[list[float]]) -> None:
         assert chunks and vectors
-        self.document = DocumentInfo(chunks[0].document_id, chunks[0].source, len(chunks), 1)
+        self.document = DocumentInfo(
+            chunks[0].document_id,
+            chunks[0].source,
+            len(chunks),
+            1,
+            chunks[0].source_sha256,
+        )
 
     def search(
         self,
@@ -84,6 +91,7 @@ def test_web_api_flow() -> None:
         assert upload.headers["cache-control"] == "no-store"
         uploaded = upload.json()
         assert uploaded["filename"] == "notes.txt"
+        assert uploaded["source_sha256"] == hashlib.sha256(b"Evidence stays local.").hexdigest()
         assert uploaded["chunks"] == 1
         assert uploaded["pages"] == 1
         assert client.get("/api/documents").json() == [uploaded]

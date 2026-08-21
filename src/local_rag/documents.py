@@ -22,6 +22,7 @@ def load_document(filename: str, content: bytes) -> list[Page]:
         supported = ", ".join(sorted(SUPPORTED_EXTENSIONS))
         raise RAGError(f"Unsupported file type. Use one of: {supported}")
 
+    source_sha256 = hashlib.sha256(content).hexdigest()
     if suffix == ".pdf":
         try:
             with pymupdf.open(  # type: ignore[no-untyped-call]
@@ -32,13 +33,18 @@ def load_document(filename: str, content: bytes) -> list[Page]:
                     pymupdf4llm.to_markdown(document, page_chunks=True, use_ocr=True),
                 )
             pages = [
-                Page(filename, int(page["metadata"]["page_number"]), str(page["text"]))
+                Page(
+                    filename,
+                    int(page["metadata"]["page_number"]),
+                    str(page["text"]),
+                    source_sha256,
+                )
                 for page in extracted
             ]
         except Exception as exc:
             raise RAGError("The PDF could not be read") from exc
     else:
-        pages = [Page(filename, 1, content.decode("utf-8", errors="replace"))]
+        pages = [Page(filename, 1, content.decode("utf-8", errors="replace"), source_sha256)]
 
     if not any(page.text.strip() for page in pages):
         raise RAGError("The document contains no extractable text")
@@ -46,12 +52,14 @@ def load_document(filename: str, content: bytes) -> list[Page]:
 
 
 def chunk_pages(pages: list[Page], chunk_size: int, overlap: int) -> list[Chunk]:
-    document_hash = hashlib.sha256()
-    if pages:
-        document_hash.update(pages[0].source.casefold().encode())
-    for page in pages:
-        document_hash.update(page.text.encode())
-    document_id = document_hash.hexdigest()
+    document_id = pages[0].source_sha256 if pages and pages[0].source_sha256 else ""
+    if not document_id:
+        document_hash = hashlib.sha256()
+        if pages:
+            document_hash.update(pages[0].source.casefold().encode())
+        for page in pages:
+            document_hash.update(page.text.encode())
+        document_id = document_hash.hexdigest()
 
     chunks: list[Chunk] = []
     markdown_splitter = MarkdownHeaderTextSplitter(
@@ -70,5 +78,15 @@ def chunk_pages(pages: list[Page], chunk_size: int, overlap: int) -> list[Chunk]
             stable_id = str(
                 uuid.uuid5(uuid.NAMESPACE_URL, f"{document_id}:{page.number}:{index}:{excerpt}")
             )
-            chunks.append(Chunk(stable_id, document_id, page.source, page.number, index, excerpt))
+            chunks.append(
+                Chunk(
+                    stable_id,
+                    document_id,
+                    page.source,
+                    page.number,
+                    index,
+                    excerpt,
+                    page.source_sha256,
+                )
+            )
     return chunks

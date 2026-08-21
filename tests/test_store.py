@@ -16,6 +16,7 @@ def test_local_qdrant_round_trip(tmp_path: Path) -> None:
         1,
         0,
         "Local evidence",
+        "a" * 64,
     )
 
     store.replace([chunk], [[1.0, 0.0]])
@@ -24,7 +25,9 @@ def test_local_qdrant_round_trip(tmp_path: Path) -> None:
     assert len(results) == 1
     assert results[0].text == "Local evidence"
     assert results[0].score == pytest.approx(1.0)
+    assert results[0].source_sha256 == "a" * 64
     assert store.list_documents()[0].document_id == "doc-1"
+    assert store.list_documents()[0].source_sha256 == "a" * 64
     lexical_fallback = store.search([0.0, 1.0], "local evidence", limit=1, threshold=0.9)
     assert lexical_fallback[0].text == "Local evidence"
 

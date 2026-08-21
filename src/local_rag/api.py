@@ -31,6 +31,7 @@ class CitationResponse(BaseModel):
     page: int
     text: str
     score: float
+    source_sha256: str
 
 
 class QueryResponse(BaseModel):
@@ -43,6 +44,7 @@ class DocumentResponse(BaseModel):
     filename: str
     chunks: int
     pages: int
+    source_sha256: str
 
 
 def create_app(settings: Settings | None = None, service: RAGService | None = None) -> FastAPI:
@@ -112,6 +114,7 @@ def create_app(settings: Settings | None = None, service: RAGService | None = No
             filename=document.source,
             chunks=document.chunks,
             pages=document.pages,
+            source_sha256=document.source_sha256,
         )
 
     @app.get("/api/documents", response_model=list[DocumentResponse])
@@ -123,6 +126,7 @@ def create_app(settings: Settings | None = None, service: RAGService | None = No
                 filename=document.source,
                 chunks=document.chunks,
                 pages=document.pages,
+                source_sha256=document.source_sha256,
             )
             for document in documents
         ]
@@ -139,6 +143,7 @@ def create_app(settings: Settings | None = None, service: RAGService | None = No
                     page=item.page,
                     text=item.text,
                     score=item.score,
+                    source_sha256=item.source_sha256,
                 )
                 for item in result.citations
             ],
@@ -154,6 +159,7 @@ def create_app(settings: Settings | None = None, service: RAGService | None = No
                 page=item.page,
                 text=item.text,
                 score=item.score,
+                source_sha256=item.source_sha256,
             )
             for item in matches
         ]
