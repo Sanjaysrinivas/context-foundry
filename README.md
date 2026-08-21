@@ -153,7 +153,7 @@ To swap embeddings instead, change `RAG_EMBEDDING_PROVIDER` and `RAG_EMBEDDING_M
 | `RAG_CHUNK_SIZE` | `900` | characters per chunk |
 | `RAG_CHUNK_OVERLAP` | `150` | repeated characters between chunks |
 | `RAG_EMBEDDING_BATCH_SIZE` | `32` | chunks embedded per provider request |
-| `RAG_TOP_K` | `4` | maximum passages retrieved |
+| `RAG_TOP_K` | `4` | passages per retrieval query; compound questions return at most twice this value |
 | `RAG_SCORE_THRESHOLD` | `0.15` | minimum dense score before lexical fallback |
 | `RAG_MAX_UPLOAD_MB` | `10` | upload boundary |
 | `RAG_REQUEST_TIMEOUT` | `120` | model request timeout in seconds |
@@ -214,7 +214,7 @@ Pulumi, AWS, hosted model APIs, authentication, background workers, neural reran
 
 ## Evaluation and limitations
 
-The baseline uses layout-aware PyMuPDF4LLM extraction, automatic local RapidOCR fallback for scanned pages, Markdown-aware recursive chunking, and lightweight dense/keyword score fusion. It does not use a neural reranker and does not support concurrent ingestion from multiple processes. These limits are documented so improvements can be driven by evidence.
+The baseline uses layout-aware PyMuPDF4LLM extraction, automatic local RapidOCR fallback for scanned pages, Markdown-aware recursive chunking, and lightweight dense/keyword score fusion. Clear multi-part questions are decomposed into at most three retrieval queries; their results are interleaved and deduplicated so one clause cannot consume the entire context window. It does not use a neural reranker and does not support concurrent ingestion from multiple processes. These limits are documented so improvements can be driven by evidence.
 
 There is no generated “golden truth” for every chunk. Ingestion now records the raw source SHA-256 and carries it through pages, chunks, document responses, and citations. A separate, versioned JSONL dataset anchors expected evidence to source hashes, pages, stable text, optional coordinates, and evidence groups. Only `approved_gold` cases enter release metrics; future automatically generated cases remain synthetic silver until reviewed.
 

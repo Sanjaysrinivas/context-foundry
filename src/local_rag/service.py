@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import re
 
 from local_rag.documents import chunk_pages, load_document
 from local_rag.domain import Answer, DocumentInfo, RAGError, SearchResult
 from local_rag.providers import ChatProvider, EmbeddingProvider
 from local_rag.store import VectorStore
+
+QUERY_BOUNDARY_RE = re.compile(
+    r"(?:[;?]\s+|,\s*(?:then|also)\s+|\s+and\s+"
+    r"(?=(?:explain|describe|compare|list|specify|identify|summarize|why|how|what|which|who|when|where)\b))",
+    re.IGNORECASE,
+)
 
 
 class RAGService:
@@ -61,18 +68,24 @@ class RAGService:
         clean_question = question.strip()
         if not clean_question:
             raise RAGError("Question must not be empty")
-        vectors = await self.embedding_provider.embed([clean_question])
-        if len(vectors) != 1:
+        queries = _retrieval_queries(clean_question)
+        vectors = await self.embedding_provider.embed(queries)
+        if len(vectors) != len(queries):
             raise RAGError("Embedding provider returned the wrong number of vectors")
         async with self._store_lock:
-            return await asyncio.to_thread(
-                self.store.search,
-                vectors[0],
-                clean_question,
-                self.top_k,
-                self.score_threshold,
-                document_ids,
-            )
+            matches = [
+                await asyncio.to_thread(
+                    self.store.search,
+                    vector,
+                    query,
+                    self.top_k,
+                    self.score_threshold,
+                    document_ids,
+                )
+                for query, vector in zip(queries, vectors, strict=True)
+            ]
+        limit = self.top_k if len(queries) == 1 else self.top_k * 2
+        return _interleave_unique(matches, limit)
 
     async def ask(self, question: str, document_ids: list[str] | None = None) -> Answer:
         clean_question = question.strip()
@@ -104,3 +117,27 @@ class RAGService:
 
     def close(self) -> None:
         self.store.close()
+
+
+def _retrieval_queries(question: str) -> list[str]:
+    parts = [part.strip(" ,.;:?") for part in QUERY_BOUNDARY_RE.split(question)]
+    useful_parts = [part for part in parts if len(part.split()) >= 3]
+    return useful_parts[:3] if len(useful_parts) > 1 else [question]
+
+
+def _interleave_unique(groups: list[list[SearchResult]], limit: int) -> list[SearchResult]:
+    results: list[SearchResult] = []
+    seen: set[tuple[str, int, str]] = set()
+    for rank in range(max((len(group) for group in groups), default=0)):
+        for group in groups:
+            if rank >= len(group):
+                continue
+            match = group[rank]
+            key = (match.document_id or match.source, match.page, match.text)
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append(match)
+            if len(results) == limit:
+                return results
+    return results
