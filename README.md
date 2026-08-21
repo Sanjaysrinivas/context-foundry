@@ -166,6 +166,7 @@ src/local_rag/
 ├── config.py       # validated environment configuration
 ├── documents.py    # PDF/text loading and chunking
 ├── evaluation.py   # golden-dataset runner and deterministic metrics
+├── evaluation_data.py # silver generation, review, and gold release CLI
 ├── providers.py    # chat/embedding protocols and adapters
 ├── service.py      # ingestion and question-answering pipeline
 ├── store.py        # vector-store protocol and local Qdrant
@@ -218,6 +219,8 @@ The baseline uses layout-aware PyMuPDF4LLM extraction, automatic local RapidOCR 
 There is no generated “golden truth” for every chunk. Ingestion now records the raw source SHA-256 and carries it through pages, chunks, document responses, and citations. A separate, versioned JSONL dataset anchors expected evidence to source hashes, pages, stable text, optional coordinates, and evidence groups. Only `approved_gold` cases enter release metrics; future automatically generated cases remain synthetic silver until reviewed.
 
 The deterministic evaluator reports Hit@k, MRR, evidence recall, required-evidence coverage, nDCG, citation precision, fact coverage, evidence support, abstention errors, and p50/p95 latency. With the matching corpus indexed and the app running, execute `uv run local-rag-eval path\to\cases.jsonl`. See [docs/evaluation.md](docs/evaluation.md) for the schema, review states, gates, and versioning protocol.
+
+Use `uv run local-rag-eval-data generate source.pdf evaluation/private/candidates.jsonl` to create optional synthetic silver candidates after ingestion. The same CLI validates cases, hides proposed answers during source-first review, records approvals or rejections, and freezes only `approved_gold` records into a release dataset. It adds no cloud service or evaluation framework.
 
 ## License
 

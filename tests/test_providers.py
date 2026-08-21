@@ -18,6 +18,8 @@ async def test_ollama_providers_parse_responses(monkeypatch: pytest.MonkeyPatch)
             assert payload["model"] == "embeddinggemma"
             return {"embeddings": [[0.1, 0.2], [0.3, 0.4]]}
         assert payload["model"] == "llama3.2:3b"
+        if "format" in payload:
+            assert payload["format"] == "json"
         return {"message": {"content": "Grounded [1]"}}
 
     monkeypatch.setattr(providers, "_post", fake_post)
@@ -26,6 +28,7 @@ async def test_ollama_providers_parse_responses(monkeypatch: pytest.MonkeyPatch)
 
     assert await embeddings.embed(["a", "b"]) == [[0.1, 0.2], [0.3, 0.4]]
     assert await chat.answer("Question?", "[1] Evidence") == "Grounded [1]"
+    assert await chat.complete("System", "User", json_mode=True) == "Grounded [1]"
 
 
 @pytest.mark.unit
@@ -46,6 +49,8 @@ async def test_compatible_providers_parse_responses(
                     {"index": 0, "embedding": [0.1, 0.2]},
                 ]
             }
+        if "response_format" in payload:
+            assert payload["response_format"] == {"type": "json_object"}
         return {"choices": [{"message": {"content": "Compatible answer"}}]}
 
     monkeypatch.setattr(providers, "_post", fake_post)
@@ -56,6 +61,7 @@ async def test_compatible_providers_parse_responses(
 
     assert await embeddings.embed(["a", "b"]) == [[0.1, 0.2], [0.3, 0.4]]
     assert await chat.answer("Question?", "Context") == "Compatible answer"
+    assert await chat.complete("System", "User", json_mode=True) == "Compatible answer"
 
 
 @pytest.mark.unit

@@ -90,6 +90,44 @@ For an unanswerable case, use empty evidence/facts and a null reference answer:
 Chunk IDs are deliberately excluded because parser and chunk-size changes would invalidate them.
 Review or migrate evidence anchors when the source document itself changes.
 
+## Generate and review silver candidates
+
+Candidate generation is an explicit post-ingestion action. It never runs in the upload request and
+never writes directly to a gold release:
+
+~~~powershell
+uv run local-rag-eval-data generate source.pdf evaluation/private/candidates.jsonl --count 10 --corpus-id research-demo --corpus-version 1
+uv run local-rag-eval-data validate evaluation/private/candidates.jsonl
+~~~
+
+The first generator version selects stable prose evidence and required facts deterministically, then
+uses the configured local chat provider only to propose direct factual questions. Unsupported or
+duplicate proposals are retried and remain synthetic_silver after generation. Multi-passage,
+table/OCR, near-miss, and unanswerable generation are deliberately deferred until the direct-fact
+queue has been reviewed and measured.
+
+Review the source before revealing the proposed answer:
+
+~~~powershell
+uv run local-rag-eval-data show evaluation/private/candidates.jsonl CASE_ID
+uv run local-rag-eval-data show evaluation/private/candidates.jsonl CASE_ID --reveal-answer
+uv run local-rag-eval-data review evaluation/private/candidates.jsonl CASE_ID --decision approve --reviewer sanjay
+~~~
+
+Use --question, --reference-answer, and repeated --required-fact options with review to correct a
+candidate before approval. Reject unsupported candidates with --decision reject. Generation records
+source/model/prompt provenance and deterministic support checks; closed-book leakage remains marked
+not_checked and requires a separate review before using that slice for model comparisons.
+
+Freeze only approved cases into a release dataset:
+
+~~~powershell
+uv run local-rag-eval-data release evaluation/private/candidates.jsonl evaluation/private/gold-v1.jsonl
+~~~
+
+The release command validates every selected record with the same strict loader used by the live
+evaluator. It refuses to overwrite files unless --force is supplied.
+
 ## Run it
 
 Start the application, index the matching frozen corpus, then run:

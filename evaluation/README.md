@@ -11,6 +11,10 @@ Each case supports:
 
 Only `approved_gold` records enter release metrics. Automatically generated records remain synthetic silver until source-first review.
 
+Generate, validate, inspect, review, and release candidates with `uv run local-rag-eval-data`.
+Generation is optional and post-ingestion; it uses the configured local chat model and never promotes
+its own output to gold.
+
 With the app running and the matching corpus indexed:
 
 ```powershell
