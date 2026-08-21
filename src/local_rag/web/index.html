@@ -3,77 +3,653 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Local RAG</title>
+  <meta name="color-scheme" content="light">
+  <title>Local RAG · Evidence desk</title>
   <style>
-    :root { color-scheme: dark; --bg:#090d18; --panel:#131b2c; --line:#2a3852; --text:#eef3fb; --muted:#9caac1; --cyan:#65dbcc; --gold:#f4c96b; }
+    :root {
+      --paper: #f3f6f8;
+      --surface: #fbfcfe;
+      --carbon: #162033;
+      --cobalt: #275dad;
+      --orange: #f0643b;
+      --teal: #207a6b;
+      --slate: #667085;
+      --line: #cbd3dc;
+      --soft-blue: #e7eef8;
+      --soft-orange: #fff0ea;
+      --shadow: 4px 4px 0 var(--carbon);
+      --display: Bahnschrift, "Arial Narrow", "Aptos Display", sans-serif;
+      --body: Aptos, "Segoe UI", sans-serif;
+      --utility: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+    }
+
     * { box-sizing: border-box; }
-    body { margin:0; min-height:100vh; background:radial-gradient(circle at 15% 0,#123453,transparent 30rem),var(--bg); color:var(--text); font:16px/1.5 system-ui,sans-serif; }
-    main { width:min(100% - 2rem,900px); margin:auto; padding:4rem 0; }
-    h1 { margin:.2rem 0; font-size:clamp(2.5rem,8vw,5rem); letter-spacing:-.06em; }
-    h2 { margin-top:0; }
-    p { color:var(--muted); }
-    .tag { color:var(--cyan); font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
-    .grid { display:grid; grid-template-columns:1fr 1.4fr; gap:1rem; margin-top:2rem; }
-    section { padding:1.25rem; border:1px solid var(--line); border-radius:16px; background:#131b2ce8; }
-    label { display:block; margin:.8rem 0 .35rem; font-weight:650; }
-    input, textarea, button { width:100%; border:1px solid var(--line); border-radius:10px; padding:.8rem; font:inherit; }
-    input, textarea { background:#0c1220; color:var(--text); }
-    textarea { min-height:115px; resize:vertical; }
-    button { margin-top:.75rem; background:var(--cyan); color:#071411; border:0; font-weight:800; cursor:pointer; }
-    button:disabled { opacity:.55; cursor:wait; }
-    button.secondary { background:transparent; color:var(--text); border:1px solid var(--line); }
-    button.danger { width:auto; margin:0; padding:.35rem .55rem; background:#54212c; color:#ffdce3; }
-    .document { display:flex; align-items:center; gap:.6rem; margin:.5rem 0; padding:.6rem; border:1px solid var(--line); border-radius:10px; background:#0c1220; }
-    .document input { width:auto; margin:0; }
-    .document label { flex:1; min-width:0; margin:0; }
-    .document small { display:block; color:var(--muted); }
-    #status { min-height:1.5rem; color:var(--gold); }
-    #answer { white-space:pre-wrap; color:var(--text); }
-    .citation { margin-top:.75rem; padding:.8rem; border-left:3px solid var(--cyan); background:#0c1220; }
-    .citation small { color:var(--cyan); }
-    @media(max-width:700px){ .grid{grid-template-columns:1fr} main{padding-top:2rem} }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      background: var(--paper);
+      color: var(--carbon);
+      font: 16px/1.55 var(--body);
+    }
+
+    button, input, textarea { font: inherit; }
+
+    button, input[type="file"], input[type="checkbox"] { cursor: pointer; }
+
+    button:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible {
+      outline: 3px solid var(--orange);
+      outline-offset: 3px;
+    }
+
+    button:disabled { cursor: not-allowed; opacity: .48; }
+
+    [hidden] { display: none !important; }
+
+    .skip-link {
+      position: fixed;
+      z-index: 20;
+      top: .75rem;
+      left: .75rem;
+      padding: .6rem .8rem;
+      background: var(--carbon);
+      color: white;
+      transform: translateY(-180%);
+    }
+
+    .skip-link:focus { transform: translateY(0); }
+
+    .shell {
+      width: min(100% - 2rem, 1380px);
+      margin: 0 auto;
+      padding: 1.25rem 0 4rem;
+    }
+
+    .masthead {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding-bottom: 1rem;
+      border-bottom: 2px solid var(--carbon);
+      animation: enter .45s ease-out both;
+    }
+
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: .7rem;
+      margin: 0;
+      font: 700 1rem/1 var(--display);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .brand-mark {
+      display: inline-grid;
+      width: 2rem;
+      height: 2rem;
+      place-items: center;
+      background: var(--carbon);
+      color: var(--surface);
+      font: 700 .78rem/1 var(--utility);
+      letter-spacing: 0;
+    }
+
+    .provider-state {
+      display: flex;
+      align-items: center;
+      gap: .55rem;
+      color: var(--slate);
+      font: 700 .72rem/1.2 var(--utility);
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .provider-dot {
+      width: .68rem;
+      height: .68rem;
+      border: 2px solid var(--surface);
+      border-radius: 50%;
+      background: var(--slate);
+      box-shadow: 0 0 0 1px var(--carbon);
+    }
+
+    .provider-state[data-ready="true"] .provider-dot { background: var(--teal); }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(17rem, .55fr);
+      gap: clamp(2rem, 7vw, 8rem);
+      align-items: end;
+      padding: clamp(3rem, 8vw, 7rem) 0 clamp(2.5rem, 6vw, 5rem);
+      animation: enter .55s .08s ease-out both;
+    }
+
+    .hero h1 {
+      max-width: 11ch;
+      margin: 0;
+      font: 750 clamp(3.6rem, 9.5vw, 8.6rem)/.84 var(--display);
+      letter-spacing: -.065em;
+      text-transform: uppercase;
+    }
+
+    .hero h1 span {
+      display: block;
+      color: var(--cobalt);
+    }
+
+    .hero-note {
+      padding: 1rem 0 0 1.1rem;
+      border-left: 5px solid var(--orange);
+    }
+
+    .hero-note p { margin: 0; color: var(--slate); }
+
+    .hero-note strong {
+      display: block;
+      margin-bottom: .45rem;
+      color: var(--carbon);
+      font: 700 .76rem/1.2 var(--utility);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(18rem, 22rem) minmax(0, 1fr);
+      gap: clamp(1rem, 2vw, 1.75rem);
+      align-items: start;
+      animation: enter .55s .16s ease-out both;
+    }
+
+    .panel {
+      border: 2px solid var(--carbon);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .panel-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      min-height: 3.25rem;
+      padding: .8rem 1rem;
+      border-bottom: 2px solid var(--carbon);
+      background: var(--soft-blue);
+    }
+
+    .panel-heading h2 {
+      margin: 0;
+      font: 750 1rem/1.1 var(--display);
+      letter-spacing: .045em;
+      text-transform: uppercase;
+    }
+
+    .selection-count,
+    .format-note {
+      color: var(--slate);
+      font: 700 .69rem/1.2 var(--utility);
+      text-transform: uppercase;
+    }
+
+    .panel-body { padding: 1rem; }
+
+    .field-label {
+      display: block;
+      margin-bottom: .45rem;
+      font-weight: 750;
+    }
+
+    .field-help {
+      margin: .4rem 0 0;
+      color: var(--slate);
+      font-size: .84rem;
+    }
+
+    .file-input {
+      width: 100%;
+      padding: .45rem;
+      border: 1px solid var(--line);
+      background: var(--paper);
+      color: var(--slate);
+      font-size: .82rem;
+    }
+
+    .file-input::file-selector-button {
+      margin-right: .65rem;
+      padding: .62rem .72rem;
+      border: 1px solid var(--carbon);
+      background: var(--surface);
+      color: var(--carbon);
+      font-weight: 750;
+    }
+
+    .primary-action {
+      width: 100%;
+      margin-top: .85rem;
+      padding: .82rem 1rem;
+      border: 2px solid var(--carbon);
+      background: var(--cobalt);
+      color: white;
+      box-shadow: 3px 3px 0 var(--carbon);
+      font-weight: 800;
+    }
+
+    .primary-action:not(:disabled):active {
+      transform: translate(2px, 2px);
+      box-shadow: 1px 1px 0 var(--carbon);
+    }
+
+    .library-divider {
+      margin: 1.15rem -1rem 0;
+      border: 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .library-label {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+      margin: .85rem 0 .55rem;
+    }
+
+    .library-label h3 {
+      margin: 0;
+      font-size: .82rem;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    .text-action {
+      width: auto;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--cobalt);
+      font: 750 .76rem/1 var(--body);
+      text-decoration: underline;
+      text-underline-offset: .18rem;
+    }
+
+    .document-list { display: grid; gap: .55rem; }
+
+    .empty-library {
+      margin: 0;
+      padding: 1rem;
+      border: 1px dashed var(--slate);
+      background: var(--paper);
+      color: var(--slate);
+      font-size: .9rem;
+    }
+
+    .document {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: .7rem;
+      align-items: start;
+      padding: .78rem;
+      border: 1px solid var(--line);
+      background: white;
+    }
+
+    .document:has(input:checked) { border-left: 4px solid var(--teal); }
+
+    .document input { width: 1rem; height: 1rem; margin: .16rem 0 0; accent-color: var(--teal); }
+
+    .document label { min-width: 0; font-size: .9rem; font-weight: 750; overflow-wrap: anywhere; }
+
+    .document small {
+      display: block;
+      margin-top: .18rem;
+      color: var(--slate);
+      font: .68rem/1.35 var(--utility);
+      text-transform: uppercase;
+    }
+
+    .remove-document {
+      width: auto;
+      padding: .1rem;
+      border: 0;
+      background: transparent;
+      color: var(--slate);
+      font-size: .75rem;
+      font-weight: 750;
+    }
+
+    .remove-document:hover { color: #a32d24; }
+
+    .query-panel .panel-body { padding: clamp(1rem, 3vw, 2rem); }
+
+    .question-field {
+      width: 100%;
+      min-height: 9rem;
+      resize: vertical;
+      padding: 1rem;
+      border: 2px solid var(--carbon);
+      border-radius: 0;
+      background: white;
+      color: var(--carbon);
+      font-size: clamp(1.08rem, 2vw, 1.35rem);
+      line-height: 1.45;
+    }
+
+    .question-field::placeholder { color: #8993a1; }
+
+    .ask-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-top: .85rem;
+    }
+
+    .ask-row .primary-action { width: auto; min-width: 14rem; margin: 0; }
+
+    .privacy-note {
+      margin: 0;
+      color: var(--slate);
+      font: .7rem/1.4 var(--utility);
+      text-transform: uppercase;
+    }
+
+    .operation-bar {
+      display: flex;
+      align-items: center;
+      gap: .7rem;
+      min-height: 3.2rem;
+      margin-top: 1.3rem;
+      padding: .75rem 1rem;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      color: var(--slate);
+    }
+
+    .operation-mark {
+      width: .7rem;
+      height: .7rem;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: var(--teal);
+    }
+
+    .operation-bar[data-tone="working"] .operation-mark {
+      background: var(--orange);
+      animation: pulse 1s ease-in-out infinite;
+    }
+
+    .operation-bar[data-tone="error"] { color: #8e241c; background: var(--soft-orange); }
+    .operation-bar[data-tone="error"] .operation-mark { background: #b53026; }
+
+    #status { margin: 0; font-size: .88rem; font-weight: 650; }
+
+    .result {
+      margin-top: 2rem;
+      animation: result-enter .35s ease-out both;
+    }
+
+    .result-label,
+    .evidence-kicker {
+      display: block;
+      margin: 0 0 .65rem;
+      color: var(--cobalt);
+      font: 750 .72rem/1 var(--utility);
+      letter-spacing: .09em;
+      text-transform: uppercase;
+    }
+
+    .answer {
+      max-width: 76ch;
+      margin: 0;
+      color: var(--carbon);
+      font-size: clamp(1.08rem, 2.2vw, 1.45rem);
+      line-height: 1.62;
+      white-space: pre-wrap;
+    }
+
+    .evidence-header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-top: clamp(2.5rem, 6vw, 4.5rem);
+      padding-bottom: .8rem;
+      border-bottom: 2px solid var(--carbon);
+    }
+
+    .evidence-header h3 {
+      margin: 0;
+      font: 750 clamp(1.8rem, 4vw, 3rem)/1 var(--display);
+      letter-spacing: -.03em;
+      text-transform: uppercase;
+    }
+
+    .evidence-header p { max-width: 26rem; margin: 0; color: var(--slate); font-size: .86rem; }
+
+    .evidence-ledger {
+      position: relative;
+      display: grid;
+      gap: 0;
+      margin-top: 1rem;
+      padding-left: clamp(2.6rem, 7vw, 5.3rem);
+    }
+
+    .evidence-ledger::before {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: clamp(1.18rem, 3vw, 2.5rem);
+      width: 4px;
+      background: var(--orange);
+      content: "";
+    }
+
+    .evidence-item {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(7rem, 10rem);
+      gap: 1.2rem;
+      padding: 1.25rem 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .evidence-index {
+      position: absolute;
+      top: 1.15rem;
+      left: calc(clamp(2.6rem, 7vw, 5.3rem) * -1);
+      display: grid;
+      width: clamp(2.4rem, 5vw, 4.4rem);
+      height: 2rem;
+      place-items: center;
+      border: 2px solid var(--carbon);
+      background: var(--surface);
+      color: var(--carbon);
+      font: 800 .75rem/1 var(--utility);
+    }
+
+    .evidence-source {
+      margin-bottom: .4rem;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
+
+    .evidence-text { margin: 0; color: #3e4959; white-space: pre-wrap; }
+
+    .evidence-data {
+      align-self: start;
+      color: var(--slate);
+      font: 700 .68rem/1.5 var(--utility);
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .score-track {
+      display: block;
+      height: .35rem;
+      margin-top: .55rem;
+      background: var(--line);
+    }
+
+    .score-fill { display: block; height: 100%; background: var(--cobalt); }
+
+    .page-footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-top: 3rem;
+      padding-top: 1rem;
+      border-top: 2px solid var(--carbon);
+      color: var(--slate);
+      font: .68rem/1.4 var(--utility);
+      text-transform: uppercase;
+    }
+
+    @keyframes enter {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes result-enter {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes pulse { 50% { opacity: .35; transform: scale(.78); } }
+
+    @media (max-width: 900px) {
+      .workspace { grid-template-columns: 1fr; }
+      .library-panel { order: 0; }
+      .query-panel { order: 1; }
+      .hero { grid-template-columns: 1fr; gap: 1.5rem; }
+      .hero-note { max-width: 34rem; }
+    }
+
+    @media (max-width: 620px) {
+      .shell { width: min(100% - 1rem, 1380px); padding-top: .6rem; }
+      .masthead { align-items: flex-start; }
+      .brand { gap: .45rem; }
+      .brand span:last-child { display: none; }
+      .provider-state { max-width: 10rem; text-align: right; }
+      .hero { padding: 2.5rem 0; }
+      .hero h1 { font-size: clamp(3.25rem, 17vw, 5rem); }
+      .ask-row, .evidence-header, .page-footer { align-items: stretch; flex-direction: column; }
+      .ask-row .primary-action { width: 100%; min-width: 0; }
+      .evidence-item { grid-template-columns: 1fr; gap: .7rem; }
+      .evidence-data { display: grid; grid-template-columns: auto 1fr; gap: .7rem; align-items: center; }
+      .score-track { margin: 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+    }
   </style>
 </head>
 <body>
-  <main>
-    <div class="tag">Private by default · powered locally</div>
-    <h1>Local RAG</h1>
-    <p>Index a PDF, Markdown, or text file, then ask questions grounded in retrieved passages.</p>
-    <div class="grid">
-      <section>
-        <h2>1. Add knowledge</h2>
-        <form id="upload-form">
-          <label for="file">Document</label>
-          <input id="file" type="file" accept=".pdf,.md,.txt" required>
-          <button type="submit">Index document</button>
-        </form>
-        <h3>Indexed documents</h3>
-        <div id="documents"><p>Loading documents…</p></div>
-        <button id="clear-documents" class="secondary" type="button">Clear all documents</button>
-      </section>
-      <section>
-        <h2>2. Ask with evidence</h2>
-        <form id="query-form">
-          <label for="question">Question</label>
-          <textarea id="question" maxlength="2000" placeholder="What does the document say about…?" required></textarea>
-          <button type="submit">Retrieve and answer</button>
-        </form>
+  <a class="skip-link" href="#question">Skip to question</a>
+  <main class="shell">
+    <header class="masthead">
+      <p class="brand"><span class="brand-mark">LR</span><span>Local evidence desk</span></p>
+      <div id="provider-state" class="provider-state" data-ready="false">
+        <span class="provider-dot" aria-hidden="true"></span>
+        <span id="provider-label">Checking local providers</span>
+      </div>
+    </header>
+
+    <section class="hero" aria-labelledby="page-title">
+      <h1 id="page-title">Ask the file.<span>Inspect the proof.</span></h1>
+      <div class="hero-note">
+        <strong>Private by default</strong>
+        <p>Choose local documents, ask one precise question, and trace the answer back to its pages.</p>
+      </div>
+    </section>
+
+    <div class="workspace">
+      <aside class="panel library-panel" aria-labelledby="library-title">
+        <div class="panel-heading">
+          <h2 id="library-title">Source library</h2>
+          <span class="format-note">PDF · MD · TXT</span>
+        </div>
+        <div class="panel-body">
+          <form id="upload-form">
+            <label class="field-label" for="file">Add a document</label>
+            <input id="file" class="file-input" type="file" accept=".pdf,.md,.txt" required>
+            <p class="field-help">Re-adding the same filename safely replaces its old index.</p>
+            <button class="primary-action" type="submit">Index document</button>
+          </form>
+
+          <hr class="library-divider">
+          <div class="library-label">
+            <h3>Available sources</h3>
+            <button id="clear-documents" class="text-action" type="button">Clear all</button>
+          </div>
+          <div id="documents" class="document-list" aria-live="polite">
+            <p class="empty-library">Reading the local index…</p>
+          </div>
+        </div>
+      </aside>
+
+      <section class="panel query-panel" aria-labelledby="question-title">
+        <div class="panel-heading">
+          <h2 id="question-title">Question desk</h2>
+          <span id="selection-count" class="selection-count">0 sources selected</span>
+        </div>
+        <div class="panel-body">
+          <form id="query-form">
+            <label class="field-label" for="question">What do you need to know?</label>
+            <textarea id="question" class="question-field" maxlength="2000" placeholder="For example: What skills does Sanjay have?" required></textarea>
+            <div class="ask-row">
+              <p class="privacy-note">Selected sources only · evidence returned with every answer</p>
+              <button class="primary-action" type="submit">Ask selected sources →</button>
+            </div>
+          </form>
+
+          <div id="operation-bar" class="operation-bar" data-tone="ready">
+            <span class="operation-mark" aria-hidden="true"></span>
+            <p id="status" role="status" aria-live="polite">Choose a source to begin.</p>
+          </div>
+
+          <section id="result" class="result" aria-labelledby="answer-title" hidden>
+            <h2 id="answer-title" class="result-label">Grounded answer</h2>
+            <div id="answer" class="answer"></div>
+
+            <div class="evidence-header">
+              <div>
+                <span class="evidence-kicker">Citation ledger</span>
+                <h3>Retrieved proof</h3>
+              </div>
+              <p>Each passage shows where the answer came from and how strongly it matched the question.</p>
+            </div>
+            <div id="citations" class="evidence-ledger"></div>
+          </section>
+        </div>
       </section>
     </div>
-    <p id="status" role="status" aria-live="polite"></p>
-    <section id="result" hidden>
-      <h2>Answer</h2><div id="answer"></div>
-      <h3>Retrieved evidence</h3><div id="citations"></div>
-    </section>
+
+    <footer class="page-footer">
+      <span>Documents and vectors stay on this machine with local providers.</span>
+      <span>Local RAG · Evidence before answers</span>
+    </footer>
   </main>
+
   <script>
     const status = document.querySelector('#status');
+    const operationBar = document.querySelector('#operation-bar');
     const result = document.querySelector('#result');
     const answer = document.querySelector('#answer');
     const citations = document.querySelector('#citations');
     const documents = document.querySelector('#documents');
     const queryButton = document.querySelector('#query-form button');
     const clearButton = document.querySelector('#clear-documents');
+    const selectionCount = document.querySelector('#selection-count');
+    const fileInput = document.querySelector('#file');
     let indexedDocuments = [];
 
     async function request(url, options = {}) {
@@ -86,44 +662,83 @@
       return data;
     }
 
+    function setStatus(message, tone = 'ready') {
+      status.textContent = message;
+      operationBar.dataset.tone = tone;
+    }
+
     function progress(message) {
       const started = Date.now();
-      status.textContent = `${message} 0s`;
+      setStatus(`${message} 0s`, 'working');
       return setInterval(() => {
-        status.textContent = `${message} ${Math.floor((Date.now() - started) / 1000)}s`;
+        setStatus(`${message} ${Math.floor((Date.now() - started) / 1000)}s`, 'working');
       }, 1000);
+    }
+
+    function selectedDocumentIds() {
+      return [...documents.querySelectorAll('.document-select:checked')].map(node => node.value);
+    }
+
+    function updateSelectionState() {
+      const count = selectedDocumentIds().length;
+      selectionCount.textContent = `${count} source${count === 1 ? '' : 's'} selected`;
+      queryButton.disabled = count === 0;
+      clearButton.disabled = indexedDocuments.length === 0;
     }
 
     function renderDocuments() {
       documents.replaceChildren();
-      queryButton.disabled = indexedDocuments.length === 0;
-      clearButton.disabled = indexedDocuments.length === 0;
       if (!indexedDocuments.length) {
-        const empty = document.createElement('p'); empty.textContent = 'No documents indexed yet.';
-        documents.append(empty); return;
+        const empty = document.createElement('p');
+        empty.className = 'empty-library';
+        empty.textContent = 'Your evidence desk is empty. Add a document above to begin.';
+        documents.append(empty);
+        updateSelectionState();
+        return;
       }
+
       for (const item of indexedDocuments) {
-        const row = document.createElement('div'); row.className = 'document';
+        const row = document.createElement('div');
+        row.className = 'document';
+
         const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox'; checkbox.checked = true; checkbox.value = item.document_id;
+        checkbox.className = 'document-select';
+        checkbox.type = 'checkbox';
+        checkbox.checked = true;
+        checkbox.value = item.document_id;
         checkbox.id = `document-${item.document_id}`;
-        const label = document.createElement('label'); label.htmlFor = checkbox.id;
+        checkbox.addEventListener('change', updateSelectionState);
+
+        const label = document.createElement('label');
+        label.htmlFor = checkbox.id;
         label.append(document.createTextNode(item.filename));
         const meta = document.createElement('small');
         meta.textContent = `${item.pages} page${item.pages === 1 ? '' : 's'} · ${item.chunks} chunks`;
         label.append(meta);
+
         const remove = document.createElement('button');
-        remove.type = 'button'; remove.className = 'danger'; remove.textContent = 'Delete';
+        remove.type = 'button';
+        remove.className = 'remove-document';
+        remove.textContent = 'Remove';
+        remove.setAttribute('aria-label', `Remove ${item.filename} from the index`);
         remove.addEventListener('click', async () => {
-          if (!confirm(`Delete ${item.filename} from the index?`)) return;
+          if (!confirm(`Remove ${item.filename} from the local index?`)) return;
+          remove.disabled = true;
           try {
             await request(`/api/documents/${encodeURIComponent(item.document_id)}`, {method:'DELETE'});
             result.hidden = true;
-            status.textContent = `Deleted ${item.filename}.`; await refreshDocuments();
-          } catch (error) { status.textContent = error.message; }
+            await refreshDocuments();
+            setStatus(`Removed ${item.filename} from the local index.`);
+          } catch (error) {
+            setStatus(error.message, 'error');
+            remove.disabled = false;
+          }
         });
-        row.append(checkbox, label, remove); documents.append(row);
+
+        row.append(checkbox, label, remove);
+        documents.append(row);
       }
+      updateSelectionState();
     }
 
     async function refreshDocuments() {
@@ -131,61 +746,132 @@
       renderDocuments();
     }
 
+    async function refreshProviderState() {
+      const providerState = document.querySelector('#provider-state');
+      const providerLabel = document.querySelector('#provider-label');
+      try {
+        const health = await request('/health');
+        providerLabel.textContent = `${health.embedding_provider} embeddings · ${health.chat_provider} chat`;
+        providerState.dataset.ready = 'true';
+      } catch {
+        providerLabel.textContent = 'Provider status unavailable';
+      }
+    }
+
     document.querySelector('#upload-form').addEventListener('submit', async (event) => {
       event.preventDefault();
       const button = event.target.querySelector('button');
       const form = new FormData();
-      form.append('file', document.querySelector('#file').files[0]);
-      button.disabled = true; const timer = progress('Extracting, embedding, and indexing…');
+      form.append('file', fileInput.files[0]);
+      button.disabled = true;
+      fileInput.disabled = true;
+      const timer = progress('Reading, embedding, and indexing…');
       try {
         const data = await request('/api/documents', {method:'POST', body:form});
         clearInterval(timer);
-        status.textContent = `Indexed ${data.filename}: ${data.pages} pages, ${data.chunks} chunks.`;
         await refreshDocuments();
-      } catch (error) { status.textContent = error.message; }
-      finally { clearInterval(timer); button.disabled = false; }
+        fileInput.value = '';
+        setStatus(`Indexed ${data.filename}: ${data.pages} pages and ${data.chunks} chunks.`);
+      } catch (error) {
+        setStatus(error.message, 'error');
+      } finally {
+        clearInterval(timer);
+        button.disabled = false;
+        fileInput.disabled = false;
+      }
     });
 
     document.querySelector('#query-form').addEventListener('submit', async (event) => {
       event.preventDefault();
-      const button = event.target.querySelector('button');
-      const selected = [...documents.querySelectorAll('input:checked')].map(node => node.value);
-      if (!selected.length) { status.textContent = 'Select at least one indexed document.'; return; }
-      button.disabled = true; const timer = progress('Retrieving evidence and generating…');
+      const selected = selectedDocumentIds();
+      if (!selected.length) {
+        setStatus('Select at least one source before asking a question.', 'error');
+        return;
+      }
+
+      queryButton.disabled = true;
       result.hidden = true;
+      const timer = progress('Retrieving proof and writing the answer…');
       try {
         const data = await request('/api/query', {
-          method:'POST', headers:{'Content-Type':'application/json'},
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
           body:JSON.stringify({
             question:document.querySelector('#question').value,
             document_ids:selected
           })
         });
-        answer.textContent = data.answer; citations.replaceChildren();
-        for (const item of data.citations) {
-          const node = document.createElement('div'); node.className = 'citation';
-          const meta = document.createElement('small');
-          meta.textContent = `${item.source} · page ${item.page} · score ${item.score.toFixed(3)}`;
-          const text = document.createElement('div'); text.textContent = item.text;
-          node.append(meta, text); citations.append(node);
-        }
-        result.hidden = false; status.textContent = '';
-      } catch (error) { status.textContent = error.message; }
-      finally { clearInterval(timer); button.disabled = false; }
+        clearInterval(timer);
+        answer.textContent = data.answer;
+        citations.replaceChildren();
+
+        data.citations.forEach((item, index) => {
+          const entry = document.createElement('article');
+          entry.className = 'evidence-item';
+
+          const number = document.createElement('span');
+          number.className = 'evidence-index';
+          number.textContent = String(index + 1).padStart(2, '0');
+
+          const passage = document.createElement('div');
+          const source = document.createElement('div');
+          source.className = 'evidence-source';
+          source.textContent = item.source;
+          const text = document.createElement('p');
+          text.className = 'evidence-text';
+          text.textContent = item.text;
+          passage.append(source, text);
+
+          const evidenceData = document.createElement('div');
+          evidenceData.className = 'evidence-data';
+          const metric = document.createElement('span');
+          metric.textContent = `Page ${item.page} · Match ${item.score.toFixed(3)}`;
+          const track = document.createElement('span');
+          track.className = 'score-track';
+          const fill = document.createElement('span');
+          fill.className = 'score-fill';
+          fill.style.width = `${Math.max(4, Math.min(100, item.score * 100))}%`;
+          track.append(fill);
+          evidenceData.append(metric, track);
+
+          entry.append(number, passage, evidenceData);
+          citations.append(entry);
+        });
+
+        result.hidden = false;
+        setStatus(`Answer grounded in ${data.citations.length} retrieved passage${data.citations.length === 1 ? '' : 's'}.`);
+        const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        result.scrollIntoView({behavior:reducedMotion ? 'auto' : 'smooth', block:'start'});
+      } catch (error) {
+        setStatus(error.message, 'error');
+      } finally {
+        clearInterval(timer);
+        updateSelectionState();
+      }
     });
 
     clearButton.addEventListener('click', async () => {
-      if (!indexedDocuments.length || !confirm('Delete every indexed document?')) return;
+      if (!indexedDocuments.length || !confirm('Remove every document from the local index?')) return;
       clearButton.disabled = true;
       try {
         await request('/api/documents', {method:'DELETE'});
         result.hidden = true;
-        status.textContent = 'Cleared all indexed documents.'; await refreshDocuments();
-      } catch (error) { status.textContent = error.message; }
-      finally { clearButton.disabled = indexedDocuments.length === 0; }
+        await refreshDocuments();
+        setStatus('Cleared the local document index.');
+      } catch (error) {
+        setStatus(error.message, 'error');
+      } finally {
+        updateSelectionState();
+      }
     });
 
-    refreshDocuments().catch(error => { status.textContent = error.message; });
+    Promise.all([refreshDocuments(), refreshProviderState()])
+      .then(() => {
+        if (indexedDocuments.length) {
+          setStatus(`${indexedDocuments.length} indexed source${indexedDocuments.length === 1 ? '' : 's'} ready.`);
+        }
+      })
+      .catch(error => setStatus(error.message, 'error'));
   </script>
 </body>
 </html>
