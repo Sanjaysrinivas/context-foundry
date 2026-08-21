@@ -29,6 +29,8 @@ def test_local_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.embedding_provider == "ollama"
     assert settings.chat_model == "llama3.2:3b"
     assert settings.embedding_model == "embeddinggemma"
+    assert settings.embedding_batch_size == 32
+    assert settings.score_threshold == 0.15
 
 
 @pytest.mark.unit
@@ -38,6 +40,7 @@ def test_local_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         (replace(Settings.from_env(), chat_provider="unknown"), "providers"),
         (replace(Settings.from_env(), chunk_overlap=900), "chunk overlap"),
         (replace(Settings.from_env(), top_k=0), "must be positive"),
+        (replace(Settings.from_env(), embedding_batch_size=0), "must be positive"),
         (
             replace(Settings.from_env(), score_threshold=1.1),
             "between zero and one",

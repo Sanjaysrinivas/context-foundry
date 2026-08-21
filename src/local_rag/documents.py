@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import hashlib
-import io
-import re
 import uuid
 from pathlib import Path
+from typing import Any, cast
 
-from pypdf import PdfReader
+import pymupdf
+import pymupdf4llm  # type: ignore[import-untyped]
+from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 
 from local_rag.domain import Chunk, Page, RAGError
 
@@ -23,10 +24,16 @@ def load_document(filename: str, content: bytes) -> list[Page]:
 
     if suffix == ".pdf":
         try:
-            reader = PdfReader(io.BytesIO(content))
+            with pymupdf.open(  # type: ignore[no-untyped-call]
+                stream=content, filetype="pdf"
+            ) as document:
+                extracted = cast(
+                    list[dict[str, Any]],
+                    pymupdf4llm.to_markdown(document, page_chunks=True, use_ocr=True),
+                )
             pages = [
-                Page(filename, number, page.extract_text() or "")
-                for number, page in enumerate(reader.pages, 1)
+                Page(filename, int(page["metadata"]["page_number"]), str(page["text"]))
+                for page in extracted
             ]
         except Exception as exc:
             raise RAGError("The PDF could not be read") from exc
@@ -40,22 +47,28 @@ def load_document(filename: str, content: bytes) -> list[Page]:
 
 def chunk_pages(pages: list[Page], chunk_size: int, overlap: int) -> list[Chunk]:
     document_hash = hashlib.sha256()
+    if pages:
+        document_hash.update(pages[0].source.casefold().encode())
     for page in pages:
         document_hash.update(page.text.encode())
     document_id = document_hash.hexdigest()
 
     chunks: list[Chunk] = []
-    step = chunk_size - overlap
+    markdown_splitter = MarkdownHeaderTextSplitter(
+        [("#", "title"), ("##", "section"), ("###", "subsection")],
+        strip_headers=False,
+    )
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=overlap,
+    )
     for page in pages:
-        text = re.sub(r"\s+", " ", page.text).strip()
-        for index, start in enumerate(range(0, len(text), step)):
-            excerpt = text[start : start + chunk_size].strip()
-            if not excerpt:
-                continue
+        sections = markdown_splitter.split_text(page.text)
+        excerpts = text_splitter.split_documents(sections)
+        for index, document in enumerate(excerpts):
+            excerpt = document.page_content.strip()
             stable_id = str(
                 uuid.uuid5(uuid.NAMESPACE_URL, f"{document_id}:{page.number}:{index}:{excerpt}")
             )
             chunks.append(Chunk(stable_id, document_id, page.source, page.number, index, excerpt))
-            if start + chunk_size >= len(text):
-                break
     return chunks

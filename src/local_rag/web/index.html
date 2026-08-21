@@ -21,6 +21,12 @@
     textarea { min-height:115px; resize:vertical; }
     button { margin-top:.75rem; background:var(--cyan); color:#071411; border:0; font-weight:800; cursor:pointer; }
     button:disabled { opacity:.55; cursor:wait; }
+    button.secondary { background:transparent; color:var(--text); border:1px solid var(--line); }
+    button.danger { width:auto; margin:0; padding:.35rem .55rem; background:#54212c; color:#ffdce3; }
+    .document { display:flex; align-items:center; gap:.6rem; margin:.5rem 0; padding:.6rem; border:1px solid var(--line); border-radius:10px; background:#0c1220; }
+    .document input { width:auto; margin:0; }
+    .document label { flex:1; min-width:0; margin:0; }
+    .document small { display:block; color:var(--muted); }
     #status { min-height:1.5rem; color:var(--gold); }
     #answer { white-space:pre-wrap; color:var(--text); }
     .citation { margin-top:.75rem; padding:.8rem; border-left:3px solid var(--cyan); background:#0c1220; }
@@ -41,6 +47,9 @@
           <input id="file" type="file" accept=".pdf,.md,.txt" required>
           <button type="submit">Index document</button>
         </form>
+        <h3>Indexed documents</h3>
+        <div id="documents"><p>Loading documents…</p></div>
+        <button id="clear-documents" class="secondary" type="button">Clear all documents</button>
       </section>
       <section>
         <h2>2. Ask with evidence</h2>
@@ -62,12 +71,64 @@
     const result = document.querySelector('#result');
     const answer = document.querySelector('#answer');
     const citations = document.querySelector('#citations');
+    const documents = document.querySelector('#documents');
+    const queryButton = document.querySelector('#query-form button');
+    const clearButton = document.querySelector('#clear-documents');
+    let indexedDocuments = [];
 
-    async function request(url, options) {
+    async function request(url, options = {}) {
       const response = await fetch(url, options);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || 'Request failed');
+      const body = await response.text();
+      let data = {};
+      try { data = body ? JSON.parse(body) : {}; }
+      catch { if (!response.ok) throw new Error(`Request failed (${response.status})`); }
+      if (!response.ok) throw new Error(data.detail || `Request failed (${response.status})`);
       return data;
+    }
+
+    function progress(message) {
+      const started = Date.now();
+      status.textContent = `${message} 0s`;
+      return setInterval(() => {
+        status.textContent = `${message} ${Math.floor((Date.now() - started) / 1000)}s`;
+      }, 1000);
+    }
+
+    function renderDocuments() {
+      documents.replaceChildren();
+      queryButton.disabled = indexedDocuments.length === 0;
+      clearButton.disabled = indexedDocuments.length === 0;
+      if (!indexedDocuments.length) {
+        const empty = document.createElement('p'); empty.textContent = 'No documents indexed yet.';
+        documents.append(empty); return;
+      }
+      for (const item of indexedDocuments) {
+        const row = document.createElement('div'); row.className = 'document';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox'; checkbox.checked = true; checkbox.value = item.document_id;
+        checkbox.id = `document-${item.document_id}`;
+        const label = document.createElement('label'); label.htmlFor = checkbox.id;
+        label.append(document.createTextNode(item.filename));
+        const meta = document.createElement('small');
+        meta.textContent = `${item.pages} page${item.pages === 1 ? '' : 's'} · ${item.chunks} chunks`;
+        label.append(meta);
+        const remove = document.createElement('button');
+        remove.type = 'button'; remove.className = 'danger'; remove.textContent = 'Delete';
+        remove.addEventListener('click', async () => {
+          if (!confirm(`Delete ${item.filename} from the index?`)) return;
+          try {
+            await request(`/api/documents/${encodeURIComponent(item.document_id)}`, {method:'DELETE'});
+            result.hidden = true;
+            status.textContent = `Deleted ${item.filename}.`; await refreshDocuments();
+          } catch (error) { status.textContent = error.message; }
+        });
+        row.append(checkbox, label, remove); documents.append(row);
+      }
+    }
+
+    async function refreshDocuments() {
+      indexedDocuments = await request('/api/documents');
+      renderDocuments();
     }
 
     document.querySelector('#upload-form').addEventListener('submit', async (event) => {
@@ -75,23 +136,30 @@
       const button = event.target.querySelector('button');
       const form = new FormData();
       form.append('file', document.querySelector('#file').files[0]);
-      button.disabled = true; status.textContent = 'Embedding and indexing…';
+      button.disabled = true; const timer = progress('Extracting, embedding, and indexing…');
       try {
         const data = await request('/api/documents', {method:'POST', body:form});
-        status.textContent = `Indexed ${data.filename} as ${data.chunks} chunks.`;
+        clearInterval(timer);
+        status.textContent = `Indexed ${data.filename}: ${data.pages} pages, ${data.chunks} chunks.`;
+        await refreshDocuments();
       } catch (error) { status.textContent = error.message; }
-      finally { button.disabled = false; }
+      finally { clearInterval(timer); button.disabled = false; }
     });
 
     document.querySelector('#query-form').addEventListener('submit', async (event) => {
       event.preventDefault();
       const button = event.target.querySelector('button');
-      button.disabled = true; status.textContent = 'Retrieving evidence and generating…';
+      const selected = [...documents.querySelectorAll('input:checked')].map(node => node.value);
+      if (!selected.length) { status.textContent = 'Select at least one indexed document.'; return; }
+      button.disabled = true; const timer = progress('Retrieving evidence and generating…');
       result.hidden = true;
       try {
         const data = await request('/api/query', {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({question:document.querySelector('#question').value})
+          body:JSON.stringify({
+            question:document.querySelector('#question').value,
+            document_ids:selected
+          })
         });
         answer.textContent = data.answer; citations.replaceChildren();
         for (const item of data.citations) {
@@ -103,8 +171,21 @@
         }
         result.hidden = false; status.textContent = '';
       } catch (error) { status.textContent = error.message; }
-      finally { button.disabled = false; }
+      finally { clearInterval(timer); button.disabled = false; }
     });
+
+    clearButton.addEventListener('click', async () => {
+      if (!indexedDocuments.length || !confirm('Delete every indexed document?')) return;
+      clearButton.disabled = true;
+      try {
+        await request('/api/documents', {method:'DELETE'});
+        result.hidden = true;
+        status.textContent = 'Cleared all indexed documents.'; await refreshDocuments();
+      } catch (error) { status.textContent = error.message; }
+      finally { clearButton.disabled = indexedDocuments.length === 0; }
+    });
+
+    refreshDocuments().catch(error => { status.textContent = error.message; });
   </script>
 </body>
 </html>

@@ -123,7 +123,7 @@
         <div class="flow" aria-label="System context diagram">
           <div class="node"><strong>User</strong><small>browser or API client</small></div>
           <div class="arrow" aria-hidden="true">→</div>
-          <div class="node"><strong>FastAPI app</strong><small>ingest, query, health, static UI</small></div>
+          <div class="node"><strong>FastAPI app</strong><small>document lifecycle, retrieve, query, health, static UI</small></div>
           <div class="arrow" aria-hidden="true">↔</div>
           <div class="node"><strong>Local services</strong><small>Ollama HTTP API + embedded Qdrant</small></div>
         </div>
@@ -140,21 +140,21 @@
             <ol>
               <li>Validate file size and supported extension.</li>
               <li>Extract text from PDF, Markdown, or plain text.</li>
-              <li>Split text into overlapping character chunks.</li>
+              <li>Preserve Markdown headings and split on natural boundaries with overlap.</li>
               <li>Embed chunks in batches with the configured embedding provider.</li>
               <li>Create or validate the Qdrant collection dimension.</li>
-              <li>Upsert vectors with source, page, chunk index, and text payload.</li>
+              <li>Replace stale chunks for the same filename and store citation metadata.</li>
             </ol>
           </article>
           <article class="card wide">
             <h3>Question answering</h3>
             <ol>
               <li>Embed the question with the same embedding provider.</li>
-              <li>Run cosine similarity search for the top <code>RAG_TOP_K</code> chunks.</li>
+              <li>Fuse dense similarity with keyword coverage, optionally scoped to selected documents.</li>
               <li>Reject weak matches below <code>RAG_SCORE_THRESHOLD</code>.</li>
               <li>Build a bounded prompt containing labeled source excerpts.</li>
               <li>Ask the configured chat provider to answer only from that context.</li>
-              <li>Return the answer plus structured citations and similarity scores.</li>
+              <li>Return the answer plus structured citations and hybrid relevance scores.</li>
             </ol>
           </article>
         </div>
@@ -173,7 +173,7 @@
               <tr><td>Chat</td><td>Ollama <code>/api/chat</code></td><td>Local inference, no token bill, simple documented JSON API.</td><td>OpenAI-compatible adapter for another local or hosted endpoint.</td></tr>
               <tr><td>Embeddings</td><td>Ollama <code>/api/embed</code> + <code>embeddinggemma</code></td><td>Batch inputs, local execution, and independent model configuration.</td><td>Swap only the embedding provider and rebuild the collection.</td></tr>
               <tr><td>Vector database</td><td>Qdrant client local mode</td><td>Persistent vector search with the same client API available for a later server migration.</td><td>Run Qdrant server when concurrent writers or remote access matter.</td></tr>
-              <tr><td>Document parsing</td><td>stdlib + pypdf</td><td>Text/Markdown need no parser; one focused dependency handles PDFs.</td><td>Add format-specific loaders only for formats users actually need.</td></tr>
+              <tr><td>Document parsing</td><td>PyMuPDF4LLM + RapidOCR</td><td>Extracts layout-aware Markdown and automatically OCRs image-only pages locally.</td><td>Add language models only when non-English scans are required.</td></tr>
               <tr><td>Model transport</td><td>HTTPX</td><td>One async HTTP client covers Ollama and OpenAI-compatible endpoints.</td><td>Provider SDK only when it exposes required behavior missing from HTTP.</td></tr>
               <tr><td>Quality</td><td>Ruff, mypy, pytest, nox, pre-commit</td><td>Fast local checks mirror CI; configuration lives in <code>pyproject.toml</code>.</td><td>None until project scale justifies more specialized tooling.</td></tr>
             </tbody>
@@ -203,8 +203,8 @@ class ChatProvider(Protocol):
         <h2>Data and retrieval model</h2>
         <div class="grid">
           <article class="card wide"><h3>Vector</h3><p>The embedding is stored with cosine distance. Collection dimensionality is discovered from the first embedding and checked thereafter.</p></article>
-          <article class="card wide"><h3>Payload</h3><p><code>document_id</code>, <code>source</code>, <code>page</code>, <code>chunk_index</code>, <code>text</code>, and a content hash support citations and idempotent re-ingestion.</p></article>
-          <article class="card wide"><h3>Chunking</h3><p>Character-based chunks keep the dependency surface small and work across models. Defaults are configurable; a tokenizer-aware splitter is a measured future optimization.</p></article>
+          <article class="card wide"><h3>Payload</h3><p><code>document_id</code>, <code>source</code>, <code>page</code>, <code>chunk_index</code>, and <code>text</code> support citations, document filtering, deletion, and replacement on re-ingestion.</p></article>
+          <article class="card wide"><h3>Chunking</h3><p>PyMuPDF4LLM preserves PDF layout as Markdown; RapidOCR handles scanned pages locally; LangChain's standalone splitter preserves headings and natural text boundaries while enforcing configurable character limits.</p></article>
           <article class="card wide"><h3>Consistency rule</h3><p>Changing the embedding model or provider requires rebuilding the collection. Mixing vector spaces produces invalid similarity results.</p></article>
         </div>
       </div>
@@ -223,7 +223,7 @@ class ChatProvider(Protocol):
               <tr><td>Prompt safety</td><td>Retrieved documents are untrusted data. The system prompt tells the model to ignore instructions inside context and answer only from evidence.</td></tr>
               <tr><td>Input boundary</td><td>Extensions and upload size are validated; filenames are metadata only and never used as filesystem destinations.</td></tr>
               <tr><td>Failure modes</td><td>Unavailable models, malformed documents, dimension changes, and empty retrieval return actionable API errors.</td></tr>
-              <tr><td>Observability</td><td>Structured application logs record request outcome, document/chunk counts, provider/model names, latency, and retrieval scores—never full document text.</td></tr>
+              <tr><td>Quality signals</td><td>The UI reports elapsed work and citation scores; the live JSONL evaluator records retrieval, grounding, abstention, and p95 latency metrics.</td></tr>
               <tr><td>Backup</td><td>Stop the app and copy <code>data/qdrant</code>. Source documents remain the canonical rebuild path.</td></tr>
             </tbody>
           </table>
@@ -252,12 +252,12 @@ class ChatProvider(Protocol):
     <section id="decisions">
       <div class="wrap">
         <h2>Key decisions and upgrade triggers</h2>
-        <div class="decision"><b>Direct APIs</b><span>Skip LangChain and LlamaIndex. Add one only if its measured integrations remove more code than they introduce.</span></div>
+        <div class="decision"><b>Direct APIs</b><span>Keep direct model APIs and use only LangChain's standalone text splitters; skip orchestration frameworks until they remove more code than they introduce.</span></div>
         <div class="decision"><b>Local Qdrant</b><span>Skip Docker and cloud storage. Move to Qdrant server when multiple processes, remote clients, or concurrent ingestion are required.</span></div>
-        <div class="decision"><b>Simple chunks</b><span>Start with overlapping characters. Add semantic or tokenizer-aware chunking after retrieval evaluation shows a weakness.</span></div>
-        <div class="decision"><b>No reranker</b><span>Vector similarity is the baseline. Add a local cross-encoder only if an evaluation set proves top-k precision is insufficient.</span></div>
+        <div class="decision"><b>Structured chunks</b><span>Preserve Markdown headings and natural text boundaries, then enforce configurable character limits with overlap.</span></div>
+        <div class="decision"><b>Lightweight hybrid retrieval</b><span>Fuse dense similarity with keyword coverage. Add a local cross-encoder only if the evaluation set proves top-k precision is still insufficient.</span></div>
         <div class="decision"><b>No cloud IaC</b><span>Pulumi, AWS, and paid hosting conflict with the local zero-cost scope. The provider and vector-store seams preserve a migration path.</span></div>
-        <div class="decision"><b>Evaluation next</b><span>Initial tests prove deterministic plumbing with fakes. A curated question/evidence dataset becomes the next milestone after real documents exist.</span></div>
+        <div class="decision"><b>Golden evaluation dataset</b><span>A checked-in schema and live runner score human-verified questions, expected evidence, required facts, abstention, and latency. Private cases and results remain outside Git.</span></div>
       </div>
     </section>
   </main>

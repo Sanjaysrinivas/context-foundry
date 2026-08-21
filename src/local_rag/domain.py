@@ -36,6 +36,15 @@ class SearchResult:
     page: int
     text: str
     score: float
+    document_id: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentInfo:
+    document_id: str
+    source: str
+    chunks: int
+    pages: int
 
 
 @dataclass(frozen=True, slots=True)

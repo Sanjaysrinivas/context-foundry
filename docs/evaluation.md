@@ -1,38 +1,69 @@
-# RAG evaluation plan
+# RAG evaluation
 
-The automated suite proves pipeline behavior; it does not prove answer quality. Quality should be measured against representative documents before changing chunking, retrieval, prompts, or models.
+Unit tests prove pipeline behavior; the included live evaluator measures whether retrieval and answers remain useful on representative documents. It does not create training data during ingestion and it does not treat model output as truth.
 
-## Evaluation set
+## Build the dataset
 
-Create a private JSON Lines file outside Git with at least 30 cases spanning direct facts, facts distributed across passages, ambiguous questions, and questions whose answer is absent.
+Copy `evaluation/cases.example.jsonl` to `evaluation/private/` and create at least 30 human-verified cases spanning direct facts, facts distributed across passages, ambiguous wording, and questions whose answer is absent. Private datasets, result files, and source documents are ignored by Git.
+
+Each JSON Lines record has this shape:
 
 ```json
-{"question":"What is the cancellation window?","expected_source":"policy.pdf","expected_page":4,"reference_answer":"30 days"}
-{"question":"Does the policy guarantee refunds after 30 days?","expected_source":null,"expected_page":null,"reference_answer":null}
+{
+  "id": "policy-cancellation-001",
+  "question": "What is the cancellation window?",
+  "answerable": true,
+  "expected_evidence": [
+    {"source": "policy.pdf", "page": 4, "contains": ["30 days"]}
+  ],
+  "required_facts": ["30 days"],
+  "reference_answer": "The cancellation window is 30 days.",
+  "document_ids": []
+}
 ```
 
-Source documents and evaluation cases may contain private text and therefore must not be committed unless they are intentionally public fixtures.
+- `id`, `question`, and `answerable` identify the case.
+- `expected_evidence` identifies a relevant citation by filename, one-based page, and stable text fragments. It is required for answerable cases.
+- `required_facts` lists normalized phrases that must appear in both the answer and retrieved evidence. It is required for answerable cases.
+- `reference_answer` is documentation for reviewers; deterministic scoring uses `required_facts`.
+- `document_ids` optionally scopes the case to specific indexed documents. Leave it empty to search the whole collection.
 
-## Baseline metrics
+For an unanswerable case, use an empty evidence/facts list and `null` reference answer:
 
-| Layer | Metric | Baseline target | Meaning |
+```json
+{"id":"policy-absent-001","question":"Who approved this policy?","answerable":false,"expected_evidence":[],"required_facts":[],"reference_answer":null}
+```
+
+Chunk IDs are deliberately excluded because changing the parser or chunk size would invalidate them. Review expected passages when a source document itself changes.
+
+## Run it
+
+Start the application, index the matching corpus, then run:
+
+```powershell
+uv run local-rag-eval evaluation/private/cases.jsonl
+```
+
+Use `--base-url` for another local port. The command prints JSON and exits with status 1 if a quality threshold is missed. Run `uv run local-rag-eval --help` to see every configurable threshold.
+
+## Metrics and initial gates
+
+| Layer | Metric | Default gate | Meaning |
 |---|---|---:|---|
-| Retrieval | Hit@4 | ≥ 0.85 | expected evidence appears in the top four chunks |
-| Retrieval | Mean reciprocal rank | ≥ 0.70 | relevant evidence ranks near the top |
-| Generation | Citation correctness | ≥ 0.90 | cited passage supports the associated claim |
-| Generation | Faithfulness | ≥ 0.90 | answer claims are supported by retrieved context |
-| Abstention | Accuracy | ≥ 0.90 | unanswered questions produce an explicit insufficient-evidence response |
-| Runtime | p95 latency | record locally | separates retrieval cost from model-generation cost |
+| Retrieval | Hit@k | ≥ 0.85 | at least one expected passage appears in returned citations |
+| Retrieval | Mean reciprocal rank | ≥ 0.70 | expected evidence ranks near the top |
+| Retrieval | Citation precision | ≥ 0.90 | returned citations match annotated evidence |
+| Generation | Fact coverage | ≥ 0.90 | required facts appear in the answer |
+| Grounding | Evidence support | ≥ 0.90 | required answer facts also occur in retrieved evidence |
+| Abstention | Accuracy | ≥ 0.90 | absent-answer cases return no citations and an explicit insufficient-evidence response |
+| Runtime | p95 latency | recorded | end-to-end API latency for the local machine/model |
 
-Targets are initial portfolio thresholds, not universal production guarantees. Record the machine, model tag, configuration, corpus size, and date with every result.
+Fact matching is a deterministic, case-insensitive phrase check, not an LLM judge. This makes regressions reproducible but means paraphrases must be represented by suitable required phrases or reviewed manually. The gates are initial portfolio targets, not universal production guarantees.
 
 ## Change protocol
 
-1. Freeze the evaluation set and baseline configuration.
-2. Run the same questions against the current and proposed configurations.
-3. Compare retrieval metrics before judging generated prose.
-4. Inspect every regression, especially false answers on absent evidence.
-5. Adopt a tokenizer-aware splitter, reranker, or larger model only when it improves the measured weakness enough to justify its cost.
-
-The first likely experiment is chunk size and overlap. A reranker is not warranted until correct evidence frequently appears below the top retrieved positions.
-
+1. Freeze the corpus, evaluation cases, model tags, and retrieval configuration.
+2. Record the date, machine, corpus size, and p95 latency with the baseline output.
+3. Run the same cases against the proposed parser, chunking, retrieval, prompt, or model change.
+4. Compare retrieval metrics before judging generated prose and inspect every abstention regression.
+5. Adopt a neural reranker or more complex framework only when the measured gain justifies its latency and maintenance cost.

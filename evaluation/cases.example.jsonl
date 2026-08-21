@@ -1,0 +1,2 @@
+{"id":"notes-storage-001","question":"Where is the evidence stored?","answerable":true,"expected_evidence":[{"source":"notes.txt","page":1,"contains":["stored locally"]}],"required_facts":["stored locally"],"reference_answer":"The evidence is stored locally."}
+{"id":"notes-absent-001","question":"Who approved the evidence?","answerable":false,"expected_evidence":[],"required_facts":[],"reference_answer":null}
