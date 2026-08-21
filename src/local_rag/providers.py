@@ -22,6 +22,12 @@ class ChatProvider(Protocol):
     async def answer(self, question: str, context: str) -> str: ...
 
 
+class CompletionProvider(Protocol):
+    async def complete(
+        self, system_prompt: str, user_prompt: str, *, json_mode: bool = False
+    ) -> str: ...
+
+
 class OllamaEmbeddingProvider:
     def __init__(self, base_url: str, model: str, timeout: float) -> None:
         self.url = f"{base_url.rstrip('/')}/api/embed"
@@ -43,19 +49,27 @@ class OllamaChatProvider:
         self.timeout = timeout
 
     async def answer(self, question: str, context: str) -> str:
+        return await self.complete(
+            SYSTEM_PROMPT,
+            f"Context:\n{context}\n\nQuestion: {question}",
+        )
+
+    async def complete(
+        self, system_prompt: str, user_prompt: str, *, json_mode: bool = False
+    ) -> str:
+        payload: dict[str, object] = {
+            "model": self.model,
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        if json_mode:
+            payload["format"] = "json"
         data = await _post(
             self.url,
-            {
-                "model": self.model,
-                "stream": False,
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": f"Context:\n{context}\n\nQuestion: {question}",
-                    },
-                ],
-            },
+            payload,
             self.timeout,
         )
         message = data.get("message")
@@ -96,18 +110,26 @@ class OpenAICompatibleChatProvider:
         self.timeout = timeout
 
     async def answer(self, question: str, context: str) -> str:
+        return await self.complete(
+            SYSTEM_PROMPT,
+            f"Context:\n{context}\n\nQuestion: {question}",
+        )
+
+    async def complete(
+        self, system_prompt: str, user_prompt: str, *, json_mode: bool = False
+    ) -> str:
+        payload: dict[str, object] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
         data = await _post(
             self.url,
-            {
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": f"Context:\n{context}\n\nQuestion: {question}",
-                    },
-                ],
-            },
+            payload,
             self.timeout,
             self.headers,
         )

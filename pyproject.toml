@@ -20,6 +20,7 @@ dependencies = [
 [project.scripts]
 local-rag = "local_rag.api:main"
 local-rag-eval = "local_rag.evaluation:main"
+local-rag-eval-data = "local_rag.evaluation_data:main"
 
 [build-system]
 requires = ["hatchling>=1.27"]
