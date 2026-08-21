@@ -107,6 +107,7 @@ The response keeps generation and retrieval separately inspectable:
 ```json
 {
   "answer": "The document concludes that ... [1]",
+  "answer_html": "<p>The document concludes that ... [1]</p>",
   "citations": [
     {
       "document_id": "…",
@@ -119,6 +120,9 @@ The response keeps generation and retrieval separately inspectable:
   ]
 }
 ```
+
+`answer` remains the plain Markdown response for API clients and evaluation. `answer_html` is the
+server-rendered browser representation; raw HTML from model output is disabled before rendering.
 
 Use `POST /api/retrieve` with the same request body to inspect retrieval without generation. Delete one document with `DELETE /api/documents/{document_id}`, or clear the collection with `DELETE /api/documents`. A full clear and re-index is required after changing embedding models because vectors from different embedding spaces cannot be mixed.
 
