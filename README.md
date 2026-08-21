@@ -79,6 +79,8 @@ uv run --env-file .env local-rag
 
 On macOS or Linux, replace `Copy-Item` with `cp`. Open <http://127.0.0.1:8000>, upload a `.pdf`, `.md`, or `.txt` file, select the documents to search, and ask a question. Re-uploading a filename replaces its old chunks instead of leaving stale copies.
 
+The browser interface is organized as an evidence desk: manage and select sources in the library, ask from the question workspace, then inspect the answer's numbered citation ledger with page references and hybrid relevance scores.
+
 The application stores vectors beneath `data/qdrant`. Both `.env` and `data/` are ignored by Git.
 
 ## API
