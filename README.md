@@ -194,6 +194,7 @@ Development follows `feature/* → dev → main`. `dev` is the default integrati
 
 - In the default configuration, source text is sent only to Ollama on localhost and stored only in local Qdrant.
 - Retrieved text is treated as untrusted data; the system prompt instructs the model to ignore instructions embedded in documents.
+- Answers must cover each requested part from cited context, explicitly identify unsupported parts, and avoid filling gaps with model background knowledge.
 - Upload extension and size are validated, and uploaded filenames are never used as filesystem destinations.
 - Choosing a remote compatible endpoint changes the privacy boundary. Review that provider before sending documents.
 - This demo has no authentication and binds to `127.0.0.1`. Do not expose it directly to a network.
