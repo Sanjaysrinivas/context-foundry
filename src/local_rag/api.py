@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
 import uvicorn
-from fastapi import FastAPI, File, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
@@ -22,9 +22,11 @@ WEB_DIR = Path(__file__).parent / "web"
 
 class QueryRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2_000)
+    document_ids: list[str] = Field(default_factory=list, max_length=50)
 
 
 class CitationResponse(BaseModel):
+    document_id: str
     source: str
     page: int
     text: str
@@ -34,6 +36,13 @@ class CitationResponse(BaseModel):
 class QueryResponse(BaseModel):
     answer: str
     citations: list[CitationResponse]
+
+
+class DocumentResponse(BaseModel):
+    document_id: str
+    filename: str
+    chunks: int
+    pages: int
 
 
 def create_app(settings: Settings | None = None, service: RAGService | None = None) -> FastAPI:
@@ -48,6 +57,23 @@ def create_app(settings: Settings | None = None, service: RAGService | None = No
         rag.close()
 
     app = FastAPI(title="Local RAG", version="0.1.0", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def security_headers(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        response = await call_next(request)
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; img-src 'self' data:; "
+            "style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
+        )
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     def active_service() -> RAGService:
         if rag is None:
@@ -74,22 +100,41 @@ def create_app(settings: Settings | None = None, service: RAGService | None = No
     @app.post("/api/documents")
     async def ingest_document(
         file: Annotated[UploadFile, File()],
-    ) -> dict[str, int | str]:
+    ) -> DocumentResponse:
         filename = file.filename or "document"
         limit = configured.max_upload_mb * 1024 * 1024
         content = await file.read(limit + 1)
         if len(content) > limit:
             raise RAGError(f"File exceeds the {configured.max_upload_mb} MB upload limit")
-        chunks = await active_service().ingest(filename, content)
-        return {"filename": filename, "chunks": chunks}
+        document = await active_service().ingest(filename, content)
+        return DocumentResponse(
+            document_id=document.document_id,
+            filename=document.source,
+            chunks=document.chunks,
+            pages=document.pages,
+        )
+
+    @app.get("/api/documents", response_model=list[DocumentResponse])
+    async def list_documents() -> list[DocumentResponse]:
+        documents = await active_service().list_documents()
+        return [
+            DocumentResponse(
+                document_id=document.document_id,
+                filename=document.source,
+                chunks=document.chunks,
+                pages=document.pages,
+            )
+            for document in documents
+        ]
 
     @app.post("/api/query", response_model=QueryResponse)
     async def query(request: QueryRequest) -> QueryResponse:
-        result = await active_service().ask(request.question)
+        result = await active_service().ask(request.question, request.document_ids or None)
         return QueryResponse(
             answer=result.text,
             citations=[
                 CitationResponse(
+                    document_id=item.document_id,
                     source=item.source,
                     page=item.page,
                     text=item.text,
@@ -99,9 +144,29 @@ def create_app(settings: Settings | None = None, service: RAGService | None = No
             ],
         )
 
+    @app.post("/api/retrieve", response_model=list[CitationResponse])
+    async def retrieve(request: QueryRequest) -> list[CitationResponse]:
+        matches = await active_service().retrieve(request.question, request.document_ids or None)
+        return [
+            CitationResponse(
+                document_id=item.document_id,
+                source=item.source,
+                page=item.page,
+                text=item.text,
+                score=item.score,
+            )
+            for item in matches
+        ]
+
+    @app.delete("/api/documents/{document_id}")
+    async def delete_document(document_id: str) -> dict[str, str]:
+        if not await active_service().delete_document(document_id):
+            raise HTTPException(status_code=404, detail="Document not found")
+        return {"status": "deleted"}
+
     @app.delete("/api/documents")
     async def clear_documents() -> dict[str, str]:
-        active_service().clear()
+        await active_service().clear()
         return {"status": "cleared"}
 
     return app

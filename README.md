@@ -5,7 +5,7 @@
 [![Ollama](https://img.shields.io/badge/Ollama-local-111111)](https://ollama.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-65dbcc.svg)](LICENSE)
 
-A private-by-default retrieval-augmented generation application built with Python, Ollama, and embedded Qdrant. Upload local documents, retrieve semantically relevant passages, and generate grounded answers with visible citations—without a paid API or cloud database.
+A private-by-default retrieval-augmented generation application built with Python, Ollama, and embedded Qdrant. Upload local documents, retrieve semantically and lexically relevant passages, and generate grounded answers with visible citations—without a paid API or cloud database.
 
 **[Explore the interactive architecture](https://sanjaysrinivas.github.io/context-foundry/)** · [Read the source HTML](docs/index.html) · [OpenAPI after startup](http://127.0.0.1:8000/docs)
 
@@ -14,9 +14,9 @@ A private-by-default retrieval-augmented generation application built with Pytho
 This repository exposes the mechanics that RAG frameworks often hide:
 
 1. extract text from PDF, Markdown, or plain text;
-2. split it into deterministic overlapping chunks;
+2. preserve headings and split it into deterministic overlapping chunks;
 3. create embeddings through a replaceable provider;
-4. persist and search vectors with cosine similarity;
+4. fuse cosine similarity with keyword coverage and optional document filters;
 5. assemble retrieved evidence into a guarded prompt;
 6. generate an answer and return the evidence with scores.
 
@@ -29,7 +29,7 @@ flowchart LR
     I --> EP[Embedding provider]
     EP --> Q[(Local Qdrant)]
     A --> EP
-    Q --> R[Top-k evidence]
+    Q --> R[Hybrid top-k evidence]
     R --> CP[Chat provider]
     CP --> A
     A --> U
@@ -44,11 +44,11 @@ flowchart LR
 | Chat | Ollama `llama3.2:3b` | a compact local model suited to retrieval and summarization |
 | Embeddings | Ollama `embeddinggemma` | small multilingual local embedding model with batch support |
 | Vector database | Qdrant local mode | persistent vector search with no server; same client supports a later remote Qdrant |
-| Documents | standard library + `pypdf` | no parser dependency for text/Markdown; focused PDF support |
+| Documents | PyMuPDF4LLM + RapidOCR + LangChain text splitters | layout-aware extraction, local OCR, and section-preserving chunks |
 | Model transport | HTTPX | direct documented APIs and no orchestration-framework lock-in |
 | Quality | Ruff, mypy, pytest, nox, pre-commit | identical checks locally and in GitHub Actions |
 
-LangChain and LlamaIndex are intentionally absent. The current RAG loop is smaller than the abstraction required to hide it. Add a framework only when real integrations justify the dependency.
+LangChain orchestration and LlamaIndex are intentionally absent. The project uses only LangChain's standalone text-splitter package; the current RAG loop is smaller than a framework abstraction.
 
 ## Quickstart
 
@@ -77,7 +77,7 @@ Copy-Item .env.example .env
 uv run --env-file .env local-rag
 ```
 
-On macOS or Linux, replace `Copy-Item` with `cp`. Open <http://127.0.0.1:8000>, upload a `.pdf`, `.md`, or `.txt` file, and ask a question.
+On macOS or Linux, replace `Copy-Item` with `cp`. Open <http://127.0.0.1:8000>, upload a `.pdf`, `.md`, or `.txt` file, select the documents to search, and ask a question. Re-uploading a filename replaces its old chunks instead of leaving stale copies.
 
 The application stores vectors beneath `data/qdrant`. Both `.env` and `data/` are ignored by Git.
 
@@ -90,12 +90,14 @@ curl -X POST http://127.0.0.1:8000/api/documents \
   -F "file=@notes.pdf"
 ```
 
+List indexed documents with `GET /api/documents`. The response includes each stable `document_id`, filename, page count, and chunk count.
+
 Ask a grounded question:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/query \
   -H "Content-Type: application/json" \
-  -d '{"question":"What are the main conclusions?"}'
+  -d '{"question":"What are the main conclusions?","document_ids":["DOCUMENT_ID"]}'
 ```
 
 The response keeps generation and retrieval separately inspectable:
@@ -105,6 +107,7 @@ The response keeps generation and retrieval separately inspectable:
   "answer": "The document concludes that ... [1]",
   "citations": [
     {
+      "document_id": "…",
       "source": "notes.pdf",
       "page": 4,
       "text": "Retrieved passage ...",
@@ -114,7 +117,7 @@ The response keeps generation and retrieval separately inspectable:
 }
 ```
 
-Clear the vector collection with `DELETE /api/documents`. This is required after changing embedding models because vectors from different embedding spaces cannot be mixed.
+Use `POST /api/retrieve` with the same request body to inspect retrieval without generation. Delete one document with `DELETE /api/documents/{document_id}`, or clear the collection with `DELETE /api/documents`. A full clear and re-index is required after changing embedding models because vectors from different embedding spaces cannot be mixed.
 
 ## Swap providers independently
 
@@ -146,8 +149,9 @@ To swap embeddings instead, change `RAG_EMBEDDING_PROVIDER` and `RAG_EMBEDDING_M
 | `RAG_DATA_DIR` | `data/qdrant` | persistent vector-store path |
 | `RAG_CHUNK_SIZE` | `900` | characters per chunk |
 | `RAG_CHUNK_OVERLAP` | `150` | repeated characters between chunks |
+| `RAG_EMBEDDING_BATCH_SIZE` | `32` | chunks embedded per provider request |
 | `RAG_TOP_K` | `4` | maximum passages retrieved |
-| `RAG_SCORE_THRESHOLD` | `0.25` | minimum cosine similarity |
+| `RAG_SCORE_THRESHOLD` | `0.15` | minimum dense score before lexical fallback |
 | `RAG_MAX_UPLOAD_MB` | `10` | upload boundary |
 | `RAG_REQUEST_TIMEOUT` | `120` | model request timeout in seconds |
 
@@ -158,10 +162,12 @@ src/local_rag/
 ├── api.py          # HTTP endpoints, browser UI, lifecycle
 ├── config.py       # validated environment configuration
 ├── documents.py    # PDF/text loading and chunking
+├── evaluation.py   # golden-dataset runner and deterministic metrics
 ├── providers.py    # chat/embedding protocols and adapters
 ├── service.py      # ingestion and question-answering pipeline
 ├── store.py        # vector-store protocol and local Qdrant
 └── web/index.html  # dependency-free UI
+evaluation/         # public schema/example; private cases and results ignored
 docs/
 ├── index.html      # publishable architecture document
 └── evaluation.md   # quality measurement plan
@@ -176,7 +182,7 @@ uv run nox                 # lint + typecheck + tests
 uv run pre-commit install --hook-type pre-commit --hook-type commit-msg
 ```
 
-The test suite uses deterministic fake providers, plus a real embedded-Qdrant round trip. No model download or external API is needed in CI. Current coverage is 89%, with an enforced floor of 80%.
+The test suite uses deterministic fake providers, plus a real embedded-Qdrant round trip. No model download or external API is needed in CI. Coverage is reported on every run with an enforced floor of 80%.
 
 Development follows `feature/* → dev → main`. `dev` is the default integration branch; `main` contains release-ready snapshots. Commits use Conventional Commits, and python-semantic-release creates versions, changelog entries, tags, and GitHub Releases from pushes to `main`. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -200,13 +206,15 @@ See [SECURITY.md](SECURITY.md) for reporting and deployment guidance.
 | GitHub Actions and Pages | $0 within the public-repository allowances |
 | Cloud infrastructure | not used |
 
-Pulumi, AWS, hosted model APIs, authentication, background workers, reranking, and multi-user tenancy are deferred. They add cost or operational weight without improving this local portfolio baseline. The [architecture](https://sanjaysrinivas.github.io/context-foundry/) lists the concrete triggers for each upgrade.
+Pulumi, AWS, hosted model APIs, authentication, background workers, neural reranking, and multi-user tenancy are deferred. They add cost or operational weight without improving this local portfolio baseline. The [architecture](https://sanjaysrinivas.github.io/context-foundry/) lists the concrete triggers for each upgrade.
 
 ## Evaluation and limitations
 
-The baseline deliberately uses character chunking, vector similarity, and no reranker. It does not perform OCR, parse scanned PDFs, preserve tables, or support concurrent ingestion from multiple processes. These limits are documented so improvements can be driven by evidence.
+The baseline uses layout-aware PyMuPDF4LLM extraction, automatic local RapidOCR fallback for scanned pages, Markdown-aware recursive chunking, and lightweight dense/keyword score fusion. It does not use a neural reranker and does not support concurrent ingestion from multiple processes. These limits are documented so improvements can be driven by evidence.
 
-See [docs/evaluation.md](docs/evaluation.md) for the retrieval and grounded-answer metrics planned against a curated question set.
+There is no generated “golden truth” for every chunk. During ingestion the app creates searchable chunks and metadata only. A separate, human-verified JSONL dataset defines questions, expected evidence, required answer facts, and unanswerable cases so retrieval and grounded-answer changes can be measured without teaching the system from its own output.
+
+With the matching corpus indexed and the app running, execute `uv run local-rag-eval path\to\cases.jsonl`. See [docs/evaluation.md](docs/evaluation.md) for the schema, thresholds, and interpretation.
 
 ## License
 

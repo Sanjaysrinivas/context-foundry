@@ -22,6 +22,7 @@ def build_service(settings: Settings) -> RAGService:
         QdrantVectorStore(settings.data_dir, settings.collection),
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
+        embedding_batch_size=settings.embedding_batch_size,
         top_k=settings.top_k,
         score_threshold=settings.score_threshold,
     )
