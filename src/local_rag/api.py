@@ -10,6 +10,7 @@ from typing import Annotated
 import uvicorn
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
+from markdown_it import MarkdownIt
 from pydantic import BaseModel, Field
 
 from local_rag.config import Settings
@@ -18,6 +19,7 @@ from local_rag.factory import build_service
 from local_rag.service import RAGService
 
 WEB_DIR = Path(__file__).parent / "web"
+MARKDOWN = MarkdownIt("gfm-like", {"html": False, "linkify": False})
 
 
 class QueryRequest(BaseModel):
@@ -36,6 +38,7 @@ class CitationResponse(BaseModel):
 
 class QueryResponse(BaseModel):
     answer: str
+    answer_html: str
     citations: list[CitationResponse]
 
 
@@ -136,6 +139,7 @@ def create_app(settings: Settings | None = None, service: RAGService | None = No
         result = await active_service().ask(request.question, request.document_ids or None)
         return QueryResponse(
             answer=result.text,
+            answer_html=MARKDOWN.render(result.text),
             citations=[
                 CitationResponse(
                     document_id=item.document_id,

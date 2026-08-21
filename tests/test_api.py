@@ -17,7 +17,11 @@ class FakeEmbeddings:
 class FakeChat:
     async def answer(self, question: str, context: str) -> str:
         assert question and "notes.txt" in context
-        return "The evidence stays local [1]."
+        return (
+            "**The evidence stays local** [1].\n\n"
+            "| Location | Access |\n|---|---|\n| Local | Private |\n\n"
+            "<script>alert('unsafe')</script>"
+        )
 
 
 class FakeStore:
@@ -81,6 +85,7 @@ def test_web_api_flow() -> None:
         index = client.get("/")
         assert index.status_code == 200
         assert index.headers["x-frame-options"] == "DENY"
+        assert "answer.innerHTML = data.answer_html" in index.text
         assert client.get("/health").json()["chat_provider"] == "ollama"
 
         upload = client.post(
@@ -104,7 +109,12 @@ def test_web_api_flow() -> None:
             },
         )
         assert query.status_code == 200
-        assert query.json()["citations"][0]["score"] == 0.92
+        response = query.json()
+        assert response["citations"][0]["score"] == 0.92
+        assert "<strong>The evidence stays local</strong>" in response["answer_html"]
+        assert "<table>" in response["answer_html"]
+        assert "<script>" not in response["answer_html"]
+        assert "&lt;script&gt;" in response["answer_html"]
 
         retrieval = client.post("/api/retrieve", json={"question": "Evidence?"})
         assert retrieval.status_code == 200
