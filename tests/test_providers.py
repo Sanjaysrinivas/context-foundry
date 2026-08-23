@@ -26,6 +26,8 @@ async def test_ollama_providers_parse_responses(monkeypatch: pytest.MonkeyPatch)
             assert "categorically different" in messages[0]["content"]
             assert "scoped to the current question part" in messages[0]["content"]
             assert "reproduce the directly relevant list completely" in messages[0]["content"]
+            assert "fenced flow diagram" in messages[0]["content"]
+            assert "explicit source evidence" in messages[0]["content"]
             assert "Insufficient evidence for:" in messages[0]["content"]
         if "format" in payload:
             assert payload["format"] == "json"

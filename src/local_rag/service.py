@@ -6,7 +6,12 @@ import asyncio
 import re
 from dataclasses import replace
 
-from local_rag.documents import chunk_pages, clean_extracted_markdown, load_document
+from local_rag.documents import (
+    chunk_pages,
+    clean_extracted_markdown,
+    flow_diagram_markdown,
+    load_document,
+)
 from local_rag.domain import Answer, DocumentInfo, RAGError, SearchResult
 from local_rag.providers import ChatProvider, EmbeddingProvider
 from local_rag.store import VectorStore, _lexical_terms
@@ -20,9 +25,11 @@ QUERY_BOUNDARY_RE = re.compile(
 )
 CITATION_RE = re.compile(r"\[(\d+)]")
 TABLE_SEPARATOR_RE = re.compile(r"^\|?(?:\s*:?-{3,}:?\s*\|)+$")
+LIST_ITEM_RE = re.compile(r"^(?:[-*+]|\d+[.)]|[A-Za-z][.)])\s+")
 CONTEXT_SCORE_WINDOW = 0.07
 DEFINITION_TERMS = {"define", "include", "require", "should", "use"}
 SENTENCE_BREAK_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z*])")
+NO_EVIDENCE_RESPONSE = "I could not find enough relevant evidence in the indexed documents."
 
 
 class RAGService:
@@ -112,10 +119,7 @@ class RAGService:
         ]
         evidence = _interleave_unique(scoped_groups, queries, self.top_k * len(queries))
         if not evidence:
-            return Answer(
-                "I could not find enough relevant evidence in the indexed documents.",
-                [],
-            )
+            return Answer(NO_EVIDENCE_RESPONSE, [])
 
         citation_numbers = {
             _result_key(match): index for index, (match, _query) in enumerate(evidence, 1)
@@ -127,20 +131,25 @@ class RAGService:
                 text = f"Insufficient evidence for: {query}"
             else:
                 context = "\n\n".join(
-                    f"[{index}] {match.source}, page {match.page}\n{_context_text(match.text)}"
+                    f"[{index}] {match.source}, page {match.page}\n"
+                    f"{_context_text(match.text, query)}"
                     for index, match in enumerate(scoped, 1)
                 )
                 valid_citations = set(range(1, len(scoped) + 1))
                 generation_question = _generation_question(query)
-                text = await self.chat_provider.answer(generation_question, context)
+                text = _strip_contradictory_abstention(
+                    await self.chat_provider.answer(generation_question, context)
+                )
                 if _needs_citation_repair(text, valid_citations):
-                    text = await self.chat_provider.answer(
-                        f"{generation_question}\n\n"
-                        "Rewrite the previous draft using only the evidence. "
-                        "End every supported sentence or list item with at least one valid [n] "
-                        "citation and return only the revised answer.\n\n"
-                        f"Previous draft:\n{text}",
-                        context,
+                    text = _strip_contradictory_abstention(
+                        await self.chat_provider.answer(
+                            f"{generation_question}\n\n"
+                            "Rewrite the previous draft using only the evidence. "
+                            "End every supported sentence or list item with at least one valid [n] "
+                            "citation and return only the revised answer.\n\n"
+                            f"Previous draft:\n{text}",
+                            context,
+                        )
                     )
                 if _needs_citation_repair(text, valid_citations):
                     text = f"Insufficient evidence for: {query}"
@@ -202,13 +211,30 @@ def _result_key(match: SearchResult) -> tuple[str, int, str]:
     return (match.document_id or match.source, match.page, match.text)
 
 
-def _context_text(text: str) -> str:
-    return SENTENCE_BREAK_RE.sub("\n", text)
+def _context_text(text: str, query: str) -> str:
+    diagram = flow_diagram_markdown(text)
+    if diagram:
+        return diagram
+    context = SENTENCE_BREAK_RE.sub("\n", text)
+    if not query.casefold().startswith(("explain ", "why ")):
+        return context
+    query_terms = set(_lexical_terms(query)) - {"explain", "reason"}
+    relevant = [
+        line
+        for line in context.splitlines()
+        if len(query_terms.intersection(_lexical_terms(line))) >= 2
+    ]
+    return "\n".join(relevant) or context
 
 
 def _generation_question(query: str) -> str:
     if query.casefold().startswith(("explain ", "why ", "how ")):
-        return f"{query}\nInclude every change condition stated as a reason, then stop."
+        return (
+            f"{query}\nInclude every change condition directly stated as a reason. "
+            "Do not contrast categories the question did not ask about or force additional "
+            "reasons. Exclude adjacent recommendations, implementation details, metrics, and "
+            "targets, then stop."
+        )
     return query
 
 
@@ -253,11 +279,16 @@ def _defines_requested_phrase(query_bigrams: set[tuple[str, str]], text: str) ->
 
 def _needs_citation_repair(text: str, valid_citations: set[int]) -> bool:
     claim_lines: list[str] = []
-    lines = [line.strip() for line in text.splitlines()]
-    for index, stripped in enumerate(lines):
+    raw_lines = text.splitlines()
+    lines = [line.strip() for line in raw_lines]
+    for index, (raw_line, stripped) in enumerate(zip(raw_lines, lines, strict=True)):
         lowered = stripped.casefold()
         is_heading = stripped.endswith(":") and not any(
             character in stripped[:-1] for character in ".!?"
+        )
+        next_line = next((line for line in raw_lines[index + 1 :] if line.strip()), "")
+        is_list_parent = bool(LIST_ITEM_RE.match(stripped)) and (
+            len(next_line) - len(next_line.lstrip()) > len(raw_line) - len(raw_line.lstrip())
         )
         is_table_structure = bool(TABLE_SEPARATOR_RE.fullmatch(stripped)) or (
             stripped.startswith("|")
@@ -268,9 +299,10 @@ def _needs_citation_repair(text: str, valid_citations: set[int]) -> bool:
             not stripped
             or stripped.startswith("#")
             or is_heading
+            or is_list_parent
             or is_table_structure
             or lowered.startswith("insufficient evidence for:")
-            or lowered == "i could not find enough relevant evidence in the indexed documents."
+            or lowered == NO_EVIDENCE_RESPONSE.casefold()
         ):
             continue
         claim_lines.append(stripped)
@@ -284,6 +316,21 @@ def _needs_citation_repair(text: str, valid_citations: set[int]) -> bool:
         if not claim_citations.intersection(valid_citations):
             return True
     return False
+
+
+def _strip_contradictory_abstention(text: str) -> str:
+    if not CITATION_RE.search(text):
+        return text
+    kept: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        lowered = stripped.casefold()
+        if lowered == NO_EVIDENCE_RESPONSE.casefold() or (
+            lowered.startswith("insufficient evidence for:") and CITATION_RE.search(stripped)
+        ):
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
 
 
 def _remap_citations(text: str, mapping: dict[int, int]) -> str:

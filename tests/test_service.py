@@ -1,7 +1,7 @@
 import re
 
 from local_rag.domain import Chunk, DocumentInfo, SearchResult
-from local_rag.service import RAGService
+from local_rag.service import NO_EVIDENCE_RESPONSE, RAGService
 
 
 class FakeEmbeddings:
@@ -228,6 +228,70 @@ async def test_answer_repairs_citation_heading_with_uncited_claims() -> None:
 
     assert result.text == "Fields:\n- source hash [1]"
     assert len(chat.questions) == 2
+
+
+async def test_answer_accepts_cited_nested_list_under_uncited_parent_labels() -> None:
+    match = SearchResult("report.pdf", 8, "Automatic validation\n├─ support", 0.91)
+    draft = "1. Automatic validation\n   a. evidence support [1]\n   b. answerability [1]"
+    chat = FakeChat([draft])
+
+    result = await service(FakeStore([match]), chat).ask("Trace the complete lifecycle")
+
+    assert result.text == draft
+    assert len(chat.questions) == 1
+
+
+async def test_answer_structures_extracted_flow_diagram_for_generation() -> None:
+    match = SearchResult(
+        "report.pdf",
+        8,
+        "```\nCollect evidence\n  ↓\nExtract facts\n  ↓\nValidate\n"
+        "  ├─ support\n  └─ answerability",
+        0.91,
+    )
+    chat = FakeChat()
+
+    await service(FakeStore([match]), chat).ask("Trace the complete lifecycle")
+
+    assert "1. Collect evidence" in chat.context
+    assert "3. Validate\n   - support\n   - answerability" in chat.context
+    assert "```" not in chat.context
+
+
+async def test_explanation_context_excludes_adjacent_tangents() -> None:
+    match = SearchResult(
+        "report.pdf",
+        26,
+        "Automatically generated cases are synthetic silver. "
+        "A case becomes human-verified gold only after human review. "
+        "Anchor gold labels to immutable source documents. "
+        "Grow the portfolio to 300 cases.",
+        0.91,
+    )
+    chat = FakeChat()
+
+    await service(FakeStore([match]), chat).ask(
+        "explain why generated cases remain silver until human approval"
+    )
+
+    assert "Automatically generated cases are synthetic silver." in chat.context
+    assert "only after human review." in chat.context
+    assert "Anchor gold labels" not in chat.context
+    assert "300 cases" not in chat.context
+
+
+async def test_answer_removes_full_abstention_after_cited_evidence() -> None:
+    match = SearchResult("report.pdf", 8, "Supported evidence", 0.91)
+    chat = FakeChat(
+        [
+            f"Supported answer [1].\n\n{NO_EVIDENCE_RESPONSE}\n\n"
+            "Insufficient evidence for: supported answer [1]"
+        ]
+    )
+
+    result = await service(FakeStore([match]), chat).ask("What is supported?")
+
+    assert result.text == "Supported answer [1]."
 
 
 async def test_answer_repairs_uncited_claim_line_after_cited_line() -> None:
