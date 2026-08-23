@@ -150,7 +150,7 @@ def test_web_api_flow() -> None:
         flow = client.post("/api/retrieve", json={"question": "flow diagram"}).json()[0]
         assert flow["text"].startswith("```")
         assert '<div class="evidence-flow"><ol>' in flow["text_html"]
-        assert "<span>Validate</span><ul>" in flow["text_html"]
+        assert "<li>Validate" in flow["text_html"]
         assert "<li>answerability</li>" in flow["text_html"]
         assert "<script>" not in flow["text_html"]
         assert "&lt;script&gt;" in flow["text_html"]

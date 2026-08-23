@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from html import escape
 from pathlib import Path
 from typing import Annotated
 
@@ -16,13 +14,13 @@ from markdown_it import MarkdownIt
 from pydantic import BaseModel, Field
 
 from local_rag.config import Settings
+from local_rag.documents import flow_diagram_markdown
 from local_rag.domain import ProviderError, RAGError, SearchResult
 from local_rag.factory import build_service
 from local_rag.service import RAGService
 
 WEB_DIR = Path(__file__).parent / "web"
 MARKDOWN = MarkdownIt("gfm-like", {"html": False, "linkify": False})
-FLOW_BRANCH_RE = re.compile(r"^[├└][─-]\s*(.+)$")
 
 
 class QueryRequest(BaseModel):
@@ -55,39 +53,8 @@ class DocumentResponse(BaseModel):
 
 
 def _flow_diagram_html(text: str) -> str | None:
-    lines = text.strip().splitlines()
-    if not lines or not lines[0].strip().startswith("```"):
-        return None
-    lines = lines[1:]
-    if lines and lines[-1].strip() == "```":
-        lines.pop()
-    if sum(line.strip() == "↓" for line in lines) < 2:
-        return None
-
-    stages: list[tuple[str, list[str]]] = []
-    for line in lines:
-        content = line.strip()
-        if not content or content == "↓":
-            continue
-        branch = FLOW_BRANCH_RE.match(content)
-        if branch:
-            if not stages:
-                return None
-            stages[-1][1].append(branch.group(1))
-        else:
-            stages.append((content, []))
-    if not stages or not any(details for _label, details in stages):
-        return None
-
-    items = []
-    for label, details in stages:
-        detail_list = ""
-        if details:
-            detail_list = (
-                "<ul>" + "".join(f"<li>{escape(detail)}</li>" for detail in details) + "</ul>"
-            )
-        items.append(f"<li><span>{escape(label)}</span>{detail_list}</li>")
-    return '<div class="evidence-flow"><ol>' + "".join(items) + "</ol></div>"
+    diagram = flow_diagram_markdown(text)
+    return f'<div class="evidence-flow">{MARKDOWN.render(diagram)}</div>' if diagram else None
 
 
 def _citation_response(item: SearchResult) -> CitationResponse:

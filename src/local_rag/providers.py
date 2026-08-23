@@ -22,7 +22,9 @@ For a partially supported question, answer only the supported parts and finish w
 "Insufficient evidence for:" followed by the unsupported parts.
 If no part is supported, reply only: "I could not find enough relevant evidence in the indexed
 documents."
-Do not add suggestions, related insights, sources, or facts after an insufficiency statement."""
+Do not add suggestions, related insights, sources, or facts after an insufficiency statement.
+The supplied context may include a fenced flow diagram. Its labels, arrows, and branches are
+explicit source evidence; transcribe every requested label and branch in order."""
 
 
 class EmbeddingProvider(Protocol):

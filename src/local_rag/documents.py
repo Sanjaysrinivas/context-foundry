@@ -19,6 +19,7 @@ MARK_TAG_RE = re.compile(r"</?mark>", re.IGNORECASE)
 CODE_PLURAL_RE = re.compile(r"`([^`]+)`\s+s\b")
 PUNCTUATION_SPACE_RE = re.compile(r"\s+([.,;:])")
 SLASH_SPACE_RE = re.compile(r"(?<=\S)/\s+")
+FLOW_BRANCH_RE = re.compile(r"^[├└][─-]\s*(.+)$")
 
 
 def clean_extracted_markdown(text: str) -> str:
@@ -26,6 +27,38 @@ def clean_extracted_markdown(text: str) -> str:
     text = CODE_PLURAL_RE.sub(lambda match: f"`{match.group(1)}s`", text)
     text = PUNCTUATION_SPACE_RE.sub(r"\1", text)
     return SLASH_SPACE_RE.sub("/", text)
+
+
+def flow_diagram_markdown(text: str) -> str | None:
+    lines = text.strip().splitlines()
+    if not lines or not lines[0].strip().startswith("```"):
+        return None
+    lines = lines[1:]
+    if lines and lines[-1].strip() == "```":
+        lines.pop()
+    if sum(line.strip() == "↓" for line in lines) < 2:
+        return None
+
+    stages: list[tuple[str, list[str]]] = []
+    for line in lines:
+        content = line.strip()
+        if not content or content == "↓":
+            continue
+        branch = FLOW_BRANCH_RE.match(content)
+        if branch:
+            if not stages:
+                return None
+            stages[-1][1].append(branch.group(1))
+        else:
+            stages.append((content, []))
+    if not stages or not any(details for _label, details in stages):
+        return None
+
+    output: list[str] = []
+    for index, (label, details) in enumerate(stages, 1):
+        output.append(f"{index}. {label}")
+        output.extend(f"   - {detail}" for detail in details)
+    return "\n".join(output)
 
 
 def load_document(filename: str, content: bytes) -> list[Page]:
