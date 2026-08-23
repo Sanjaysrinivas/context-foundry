@@ -20,6 +20,7 @@ class Settings:
     collection: str
     chunk_size: int
     chunk_overlap: int
+    embedding_batch_size: int
     top_k: int
     score_threshold: float
     max_upload_mb: int
@@ -39,8 +40,9 @@ class Settings:
             collection=os.getenv("RAG_COLLECTION", "documents"),
             chunk_size=int(os.getenv("RAG_CHUNK_SIZE", "900")),
             chunk_overlap=int(os.getenv("RAG_CHUNK_OVERLAP", "150")),
+            embedding_batch_size=int(os.getenv("RAG_EMBEDDING_BATCH_SIZE", "32")),
             top_k=int(os.getenv("RAG_TOP_K", "4")),
-            score_threshold=float(os.getenv("RAG_SCORE_THRESHOLD", "0.25")),
+            score_threshold=float(os.getenv("RAG_SCORE_THRESHOLD", "0.15")),
             max_upload_mb=int(os.getenv("RAG_MAX_UPLOAD_MB", "10")),
             request_timeout=float(os.getenv("RAG_REQUEST_TIMEOUT", "120")),
         )
@@ -55,8 +57,13 @@ class Settings:
         if self.chunk_size <= 0 or not 0 <= self.chunk_overlap < self.chunk_size:
             msg = "chunk overlap must be non-negative and smaller than chunk size"
             raise ValueError(msg)
-        if self.top_k <= 0 or self.max_upload_mb <= 0 or self.request_timeout <= 0:
-            msg = "top-k, upload size, and request timeout must be positive"
+        if (
+            self.embedding_batch_size <= 0
+            or self.top_k <= 0
+            or self.max_upload_mb <= 0
+            or self.request_timeout <= 0
+        ):
+            msg = "embedding batch size, top-k, upload size, and request timeout must be positive"
             raise ValueError(msg)
         if not 0 <= self.score_threshold <= 1:
             msg = "score threshold must be between zero and one"

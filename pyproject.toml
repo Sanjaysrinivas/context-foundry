@@ -9,14 +9,29 @@ authors = [{ name = "Sanjay Srinivas" }]
 dependencies = [
   "fastapi>=0.116",
   "httpx>=0.28",
-  "pypdf>=6.0",
+  "langchain-text-splitters>=1.1.2",
+  "markdown-it-py>=4.2.0",
+  "pydantic>=2.11",
+  "pymupdf4llm>=1.28.2",
   "python-multipart>=0.0.20",
   "qdrant-client>=1.18",
+  "rank-bm25>=0.2.2",
+  "rapidocr>=3.9.2",
   "uvicorn[standard]>=0.35",
+]
+
+[project.optional-dependencies]
+evaluation = [
+  "langchain-community<0.4",
+  "openai>=2.0",
+  "ragas==0.3.9",
 ]
 
 [project.scripts]
 local-rag = "local_rag.api:main"
+local-rag-eval = "local_rag.evaluation:main"
+local-rag-eval-data = "local_rag.evaluation_data:main"
+local-rag-eval-ragas = "local_rag.ragas_evaluation:main"
 
 [build-system]
 requires = ["hatchling>=1.27"]
@@ -66,14 +81,14 @@ changelog_file = "CHANGELOG.md"
 
 [dependency-groups]
 dev = [
-  "commitizen==4.17.0",
-  "mypy==2.3.0",
-  "nox==2026.7.11",
-  "pre-commit==4.6.1",
+  "commitizen==4.18.0",
+  "mypy==2.3.1",
+  "nox==2026.8.17",
+  "pre-commit==4.6.2",
   "pytest==9.1.1",
   "pytest-asyncio>=1.1",
-  "pytest-cov>=7.0",
+  "pytest-cov==7.1.0",
   "pyyaml>=6.0.2",
   "python-semantic-release==10.6.1",
-  "ruff==0.16.0",
+  "ruff==0.16.3",
 ]

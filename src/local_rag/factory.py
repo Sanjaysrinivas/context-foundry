@@ -5,6 +5,7 @@ from __future__ import annotations
 from local_rag.config import Settings
 from local_rag.providers import (
     ChatProvider,
+    CompletionProvider,
     EmbeddingProvider,
     OllamaChatProvider,
     OllamaEmbeddingProvider,
@@ -22,6 +23,7 @@ def build_service(settings: Settings) -> RAGService:
         QdrantVectorStore(settings.data_dir, settings.collection),
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
+        embedding_batch_size=settings.embedding_batch_size,
         top_k=settings.top_k,
         score_threshold=settings.score_threshold,
     )
@@ -43,6 +45,21 @@ def build_embedding_provider(settings: Settings) -> EmbeddingProvider:
 
 
 def build_chat_provider(settings: Settings) -> ChatProvider:
+    if settings.chat_provider == "ollama":
+        return OllamaChatProvider(
+            settings.ollama_base_url,
+            settings.chat_model,
+            settings.request_timeout,
+        )
+    return OpenAICompatibleChatProvider(
+        settings.openai_base_url,
+        settings.openai_api_key,
+        settings.chat_model,
+        settings.request_timeout,
+    )
+
+
+def build_completion_provider(settings: Settings) -> CompletionProvider:
     if settings.chat_provider == "ollama":
         return OllamaChatProvider(
             settings.ollama_base_url,

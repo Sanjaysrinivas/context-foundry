@@ -12,6 +12,10 @@ Please report a suspected vulnerability through GitHub's private vulnerability r
 
 Local RAG is a single-user portfolio application. It binds to `127.0.0.1`, has no authentication, and is not designed to be exposed directly to the internet or an untrusted local network.
 
+Browser responses set a restrictive same-origin content policy, deny framing and MIME sniffing, suppress referrer data, and mark API responses as non-cacheable. Embedded Qdrant operations are serialized inside the process, but multiple application processes must not share the same local database path.
+
+Generated answers are rendered as Markdown with raw HTML disabled. The browser only inserts the server-rendered `answer_html`; API consumers that render the plain `answer` field must apply equivalent restrictions instead of trusting model output as HTML.
+
 Before any shared deployment, add and verify:
 
 - authenticated access and authorization;

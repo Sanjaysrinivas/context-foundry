@@ -1,0 +1,35 @@
+# Golden evaluation datasets
+
+Keep private source documents and their datasets outside Git. Copy `cases.example.jsonl`, add at least 30 human-verified cases, and identify evidence by source hash, page, stable text, and optional page coordinates rather than generated chunk IDs.
+
+Each case supports:
+
+- `case_id`, dataset/corpus versions, split, `question`, and `answerable`;
+- `expected_evidence`: source-hash/page passages, evidence groups, and required text;
+- `required_facts`: facts that must appear in both the answer and retrieved evidence;
+- provenance, `review_status`, tags, and optional `reference_answer`/`document_ids`.
+
+Only `approved_gold` records enter release metrics. Automatically generated records remain synthetic silver until source-first review.
+
+Generate, validate, inspect, review, and release candidates with `uv run local-rag-eval-data`.
+Generation is optional and post-ingestion; it uses the configured local chat model and never promotes
+its own output to gold.
+
+With the app running and the matching corpus indexed:
+
+```powershell
+uv run local-rag-eval path\to\private-cases.jsonl
+```
+
+The command reports Hit@k, MRR, evidence recall and group coverage, nDCG, citation precision, fact coverage, evidence support, abstention errors, and p50/p95 latency. It exits non-zero when a documented quality gate is missed.
+
+Optional local Ragas diagnostics run only against the same approved dataset:
+
+```powershell
+ollama pull qwen3:8b
+uv run --extra evaluation local-rag-eval-ragas path\to\private-cases.jsonl --judge-model qwen3:8b
+```
+
+Ragas reports faithfulness, context precision, context recall, and factual correctness. Its
+LLM-judge scores supplement the deterministic release gates and never turn generated cases into
+gold.
