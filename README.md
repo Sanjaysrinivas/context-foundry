@@ -124,7 +124,8 @@ The response keeps generation and retrieval separately inspectable:
 
 `answer` and citation `text` remain plain Markdown for API clients and evaluation. `answer_html`
 and citation `text_html` are their server-rendered browser representations; raw HTML from model
-output and retrieved passages is disabled before rendering.
+output and retrieved passages is disabled before rendering. Fenced flow diagrams extracted from
+PDFs are presented as readable steps while their original citation `text` remains unchanged.
 
 Use `POST /api/retrieve` with the same request body to inspect retrieval without generation. Delete one document with `DELETE /api/documents/{document_id}`, or clear the collection with `DELETE /api/documents`. A full clear and re-index is required after changing embedding models because vectors from different embedding spaces cannot be mixed.
 

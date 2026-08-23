@@ -49,6 +49,17 @@ class FakeStore:
         document_ids: list[str] | None = None,
     ) -> list[SearchResult]:
         document_id = self.document.document_id if self.document else ""
+        if "flow" in query:
+            return [
+                SearchResult(
+                    "notes.txt",
+                    1,
+                    "```\nCollect evidence\n  ↓\nExtract facts\n  ↓\nValidate\n"
+                    "  ├─ support\n  ├─ answerability\n  └─ <script>alert('proof')</script>",
+                    0.94,
+                    document_id,
+                )
+            ]
         return [
             SearchResult(
                 "notes.txt",
@@ -93,6 +104,7 @@ def test_web_api_flow() -> None:
         index = client.get("/")
         assert index.status_code == 200
         assert index.headers["x-frame-options"] == "DENY"
+        assert index.headers["cache-control"] == "no-store"
         assert "answer.innerHTML = data.answer_html" in index.text
         assert "text.innerHTML = item.text_html" in index.text
         assert "text.textContent = item.text" not in index.text
@@ -134,6 +146,15 @@ def test_web_api_flow() -> None:
         assert retrieval.status_code == 200
         assert retrieval.json()[0]["document_id"] == uploaded["document_id"]
         assert "<strong>Evidence stays local.</strong>" in retrieval.json()[0]["text_html"]
+
+        flow = client.post("/api/retrieve", json={"question": "flow diagram"}).json()[0]
+        assert flow["text"].startswith("```")
+        assert '<div class="evidence-flow"><ol>' in flow["text_html"]
+        assert "<span>Validate</span><ul>" in flow["text_html"]
+        assert "<li>answerability</li>" in flow["text_html"]
+        assert "<script>" not in flow["text_html"]
+        assert "&lt;script&gt;" in flow["text_html"]
+        assert "```" not in flow["text_html"]
 
         assert client.delete(f"/api/documents/{uploaded['document_id']}").status_code == 200
         assert client.delete(f"/api/documents/{uploaded['document_id']}").status_code == 404
