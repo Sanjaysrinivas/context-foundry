@@ -4,6 +4,14 @@ All notable changes are generated from Conventional Commits by python-semantic-r
 
 <!-- version list -->
 
+## v1.0.1 (2026-08-23)
+
+### Bug Fixes
+
+- **brand**: Use Context Foundry name
+  ([`3d7a0e1`](https://github.com/Sanjaysrinivas/context-foundry/commit/3d7a0e1112dfe3be189acacd9b4fc1b9b3dd18c9))
+
+
 ## v1.0.0 (2026-08-23)
 
 ### Bug Fixes
