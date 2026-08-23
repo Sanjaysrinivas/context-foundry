@@ -1,6 +1,6 @@
 [project]
 name = "local-rag"
-version = "1.0.0"
+version = "1.0.1"
 description = "Zero-cost, provider-swappable RAG with Ollama and Qdrant"
 readme = "README.md"
 requires-python = ">=3.13"
