@@ -152,8 +152,9 @@
               <li>Embed the question with the same embedding provider.</li>
               <li>Rank Qdrant cosine and BM25 results independently, optionally scoped to selected documents.</li>
               <li>Fuse both ranked lists with reciprocal-rank fusion; the threshold applies only to dense results.</li>
-              <li>Build a bounded prompt containing labeled source excerpts.</li>
-              <li>Require a validated JSON schema containing claims, citation IDs, style, and unsupported parts.</li>
+              <li>Select concise supporting evidence, searching deeper for exhaustive requests.</li>
+              <li>Return explicit source lists extractively; validate synthesized claims against a JSON schema and source terms.</li>
+              <li>Fall back to the most relevant cited paragraph when local-model drafts remain ungrounded.</li>
               <li>Render Markdown and citation markers deterministically, then return the retrieved proof.</li>
             </ol>
           </article>

@@ -14,7 +14,7 @@ from local_rag.documents import (
 )
 from local_rag.domain import Answer, DocumentInfo, GroundedResponse, RAGError, SearchResult
 from local_rag.providers import ChatProvider, EmbeddingProvider
-from local_rag.store import VectorStore, lexical_tokens
+from local_rag.store import VectorStore, _lexical_terms, lexical_tokens
 
 QUERY_BOUNDARY_RE = re.compile(
     r"(?:[;?]\s+|,\s*(?=(?:(?:then|also)\s+)?"
@@ -24,6 +24,7 @@ QUERY_BOUNDARY_RE = re.compile(
     re.IGNORECASE,
 )
 UNICODE_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
+CLAIM_PREFIX_RE = re.compile(r"^(?:[-*+]\s+|\d+[.)]\s+)")
 NO_EVIDENCE_RESPONSE = "I could not find enough relevant evidence in the indexed documents."
 MIN_NEW_QUERY_TERMS = 2
 TOP_CONTEXT_COVERAGE_THRESHOLD = 0.6
@@ -39,6 +40,12 @@ QUESTION_CONTROL_TERMS = {
     "summarize",
     "trace",
 }
+EXHAUSTIVE_TERMS = {"all", "complete", "every"}
+DEFINITION_CUES = {"consist", "include", "require", "use"}
+NUMBERED_ITEM_RE = re.compile(r"^\d+\.\s+")
+STRUCTURED_ITEM_RE = re.compile(r"^(?:\d+\.|\s*-)[ \t]+\S")
+TABLE_ROW_RE = re.compile(r"^\|.*\|$")
+TABLE_SEPARATOR_RE = re.compile(r"^\|?(?:\s*:?-{3,}:?\s*\|)+$")
 
 
 class RAGService:
@@ -109,7 +116,7 @@ class RAGService:
                     self.store.search,
                     vector,
                     query,
-                    self.top_k,
+                    self.top_k * 2 if _is_exhaustive(query) else self.top_k,
                     self.score_threshold,
                     document_ids,
                 )
@@ -123,7 +130,17 @@ class RAGService:
     async def ask(self, question: str, document_ids: list[str] | None = None) -> Answer:
         clean_question = question.strip()
         queries, groups = await self._search_groups(clean_question, document_ids)
-        evidence = _interleave_unique(groups, queries, self.top_k * len(queries))
+        generation_groups = [
+            _select_generation_context(query, group)
+            for query, group in zip(queries, groups, strict=True)
+        ]
+        evidence = _interleave_unique(generation_groups, queries, self.top_k * len(queries))
+        evidence_keys = {_result_key(match) for match, _query in evidence}
+        retrieved = _interleave_unique(groups, queries, self.top_k * len(queries))
+        for match, query in retrieved:
+            if _result_key(match) not in evidence_keys:
+                evidence.append((match, query))
+                evidence_keys.add(_result_key(match))
         if not evidence:
             return Answer(NO_EVIDENCE_RESPONSE, [])
 
@@ -131,17 +148,14 @@ class RAGService:
             _result_key(match): index for index, (match, _query) in enumerate(evidence, 1)
         }
         answers: list[str] = []
-        for query, group in zip(queries, groups, strict=True):
-            scoped = [
-                match
-                for match in _select_generation_context(query, group)
-                if _result_key(match) in citation_numbers
-            ]
+        for query, group in zip(queries, generation_groups, strict=True):
+            scoped = [match for match in group if _result_key(match) in citation_numbers]
             if not scoped:
                 text = f"Insufficient evidence for: {query}"
             else:
                 context = "\n\n".join(
-                    f"[{index}] {match.source}, page {match.page}\n{_context_text(match.text)}"
+                    f"[{index}] {match.source}, page {match.page}\n"
+                    f"{_context_text(match.text, query)}"
                     for index, match in enumerate(scoped, 1)
                 )
                 draft = await self.chat_provider.answer(query, context, len(scoped))
@@ -204,6 +218,12 @@ def _result_key(match: SearchResult) -> tuple[str, int, str]:
 
 def _select_generation_context(query: str, matches: list[SearchResult]) -> list[SearchResult]:
     """Keep the top result, then only passages that add meaningful query coverage."""
+    if _is_exhaustive(query) and matches:
+        definitions = [match for match in matches if _defines_requested_phrase(query, match.text)]
+        if definitions:
+            return [max(definitions, key=lambda match: match.score)]
+        return [max(matches, key=lambda match: _structured_item_count(match.text, query))]
+
     query_terms = lexical_tokens(query) - QUESTION_CONTROL_TERMS
     if matches and query_terms:
         top_coverage = len(query_terms & lexical_tokens(matches[0].text)) / len(query_terms)
@@ -220,9 +240,58 @@ def _select_generation_context(query: str, matches: list[SearchResult]) -> list[
     return selected
 
 
-def _context_text(text: str) -> str:
+def _context_text(text: str, query: str) -> str:
     diagram = flow_diagram_markdown(text)
-    return diagram or text
+    if not diagram:
+        return text
+    query_terms = lexical_tokens(query) - QUESTION_CONTROL_TERMS
+    lines = diagram.splitlines()
+    headings = [
+        (index, len(query_terms & lexical_tokens(line)))
+        for index, line in enumerate(lines)
+        if NUMBERED_ITEM_RE.match(line)
+    ]
+    strong_matches = [index for index, overlap in headings if overlap >= 2]
+    if len(strong_matches) != 1:
+        return diagram
+    start = strong_matches[0]
+    end = next(
+        (index for index in range(start + 1, len(lines)) if NUMBERED_ITEM_RE.match(lines[index])),
+        len(lines),
+    )
+    focused = lines[start:end]
+    if query.casefold().startswith(("list ", "specify ")) and any(
+        line.lstrip().startswith("- ") for line in focused[1:]
+    ):
+        focused = focused[1:]
+    return "\n".join(focused)
+
+
+def _is_exhaustive(query: str) -> bool:
+    return bool(EXHAUSTIVE_TERMS & set(_lexical_terms(query)))
+
+
+def _defines_requested_phrase(query: str, text: str) -> bool:
+    query_terms = _lexical_terms(query)
+    query_bigrams = set(zip(query_terms, query_terms[1:], strict=False))
+    text_terms = _lexical_terms(text)
+    for index in range(len(text_terms) - 1):
+        if (text_terms[index], text_terms[index + 1]) not in query_bigrams:
+            continue
+        if DEFINITION_CUES & set(text_terms[max(0, index - 3) : index + 7]):
+            return True
+    return False
+
+
+def _structured_item_count(text: str, query: str) -> int:
+    context = _context_text(text, query)
+    lines = [line.strip() for line in context.splitlines()]
+    structured = sum(bool(STRUCTURED_ITEM_RE.match(line)) for line in context.splitlines())
+    table_rows = sum(
+        bool(TABLE_ROW_RE.fullmatch(line)) and not bool(TABLE_SEPARATOR_RE.fullmatch(line))
+        for line in lines
+    )
+    return max(structured, max(0, table_rows - 1))
 
 
 def _render_grounded_response(
@@ -232,9 +301,8 @@ def _render_grounded_response(
     for claim in response.claims:
         citations = sorted({citation_mapping[number] for number in claim.citations})
         references = " ".join(f"[{number}]" for number in citations)
-        claim_text = UNICODE_ESCAPE_RE.sub(
-            lambda match: chr(int(match.group(1), 16)), claim.text.strip()
-        )
+        claim_text = CLAIM_PREFIX_RE.sub("", claim.text.strip())
+        claim_text = UNICODE_ESCAPE_RE.sub(lambda match: chr(int(match.group(1), 16)), claim_text)
         claims.append(f"{claim_text} {references}")
 
     if response.style == "steps":
