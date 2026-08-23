@@ -150,11 +150,11 @@
             <h3>Question answering</h3>
             <ol>
               <li>Embed the question with the same embedding provider.</li>
-              <li>Fuse dense similarity with keyword coverage, optionally scoped to selected documents.</li>
-              <li>Reject weak matches below <code>RAG_SCORE_THRESHOLD</code>.</li>
+              <li>Rank Qdrant cosine and BM25 results independently, optionally scoped to selected documents.</li>
+              <li>Fuse both ranked lists with reciprocal-rank fusion; the threshold applies only to dense results.</li>
               <li>Build a bounded prompt containing labeled source excerpts.</li>
-              <li>Ask the configured chat provider to answer only from that context.</li>
-              <li>Return the answer plus structured citations and hybrid relevance scores.</li>
+              <li>Require a validated JSON schema containing claims, citation IDs, style, and unsupported parts.</li>
+              <li>Render Markdown and citation markers deterministically, then return the retrieved proof.</li>
             </ol>
           </article>
         </div>
@@ -173,8 +173,10 @@
               <tr><td>Chat</td><td>Ollama <code>/api/chat</code></td><td>Local inference, no token bill, simple documented JSON API.</td><td>OpenAI-compatible adapter for another local or hosted endpoint.</td></tr>
               <tr><td>Embeddings</td><td>Ollama <code>/api/embed</code> + <code>embeddinggemma</code></td><td>Batch inputs, local execution, and independent model configuration.</td><td>Swap only the embedding provider and rebuild the collection.</td></tr>
               <tr><td>Vector database</td><td>Qdrant client local mode</td><td>Persistent vector search with the same client API available for a later server migration.</td><td>Run Qdrant server when concurrent writers or remote access matter.</td></tr>
+              <tr><td>Retrieval</td><td>Cosine + BM25Plus + RRF</td><td>Combines semantic and exact-term ranks without mixing incompatible raw score scales.</td><td>Add a cross-encoder only after a frozen dataset proves the gain.</td></tr>
               <tr><td>Document parsing</td><td>PyMuPDF4LLM + RapidOCR</td><td>Extracts layout-aware Markdown and automatically OCRs image-only pages locally.</td><td>Add language models only when non-English scans are required.</td></tr>
               <tr><td>Model transport</td><td>HTTPX</td><td>One async HTTP client covers Ollama and OpenAI-compatible endpoints.</td><td>Provider SDK only when it exposes required behavior missing from HTTP.</td></tr>
+              <tr><td>Evaluation</td><td>Deterministic gates + optional Ragas</td><td>Human-approved gold drives repeatable release metrics; local judges add semantic diagnostics.</td><td>Use a stronger local judge when hardware permits.</td></tr>
               <tr><td>Quality</td><td>Ruff, mypy, pytest, nox, pre-commit</td><td>Fast local checks mirror CI; configuration lives in <code>pyproject.toml</code>.</td><td>None until project scale justifies more specialized tooling.</td></tr>
             </tbody>
           </table>
@@ -190,7 +192,8 @@
     async def embed(self, texts: list[str]) -&gt; list[list[float]]: ...
 
 class ChatProvider(Protocol):
-    async def answer(self, question: str, context: str) -&gt; str: ...</code></pre></div>
+    async def answer(self, question: str, context: str,
+                     citation_count: int) -&gt; GroundedResponse: ...</code></pre></div>
         <div class="grid" style="margin-top: 1rem">
           <article class="card wide"><h3>Default</h3><p><code>RAG_EMBEDDING_PROVIDER=ollama</code><br><code>RAG_CHAT_PROVIDER=ollama</code><br>Uses independently configured models against the local Ollama base URL.</p></article>
           <article class="card wide"><h3>Optional</h3><p><code>openai-compatible</code> targets any compatible endpoint. Base URL, model, and API key are environment settings; neither OpenAI nor a paid account is required.</p></article>
@@ -204,6 +207,7 @@ class ChatProvider(Protocol):
         <div class="grid">
           <article class="card wide"><h3>Vector</h3><p>The embedding is stored with cosine distance. Collection dimensionality is discovered from the first embedding and checked thereafter.</p></article>
           <article class="card wide"><h3>Payload</h3><p><code>document_id</code>, <code>source</code>, <code>page</code>, <code>chunk_index</code>, and <code>text</code> support citations, document filtering, deletion, and replacement on re-ingestion.</p></article>
+          <article class="card wide"><h3>Hybrid rank</h3><p>BM25Plus ranks stored chunk text while Qdrant ranks embeddings. Reciprocal-rank fusion combines positions, not incompatible raw score magnitudes.</p></article>
           <article class="card wide"><h3>Chunking</h3><p>PyMuPDF4LLM preserves PDF layout as Markdown; RapidOCR handles scanned pages locally; LangChain's standalone splitter preserves headings and natural text boundaries while enforcing configurable character limits.</p></article>
           <article class="card wide"><h3>Consistency rule</h3><p>Changing the embedding model or provider requires rebuilding the collection. Mixing vector spaces produces invalid similarity results.</p></article>
         </div>
@@ -222,8 +226,8 @@ class ChatProvider(Protocol):
               <tr><td>Privacy</td><td>Local Ollama mode sends no document data to a third party. Selecting a remote compatible endpoint is an explicit operator decision.</td></tr>
               <tr><td>Prompt safety</td><td>Retrieved documents are untrusted data. The system prompt tells the model to ignore instructions inside context and answer only from evidence.</td></tr>
               <tr><td>Input boundary</td><td>Extensions and upload size are validated; filenames are metadata only and never used as filesystem destinations.</td></tr>
-              <tr><td>Failure modes</td><td>Unavailable models, malformed documents, dimension changes, and empty retrieval return actionable API errors.</td></tr>
-              <tr><td>Quality signals</td><td>The UI reports elapsed work and citation scores; the live JSONL evaluator records retrieval, grounding, abstention, and p95 latency metrics.</td></tr>
+              <tr><td>Failure modes</td><td>Unavailable models, malformed documents, dimension changes, invalid structured output, and empty retrieval return actionable API errors.</td></tr>
+              <tr><td>Quality signals</td><td>The UI reports elapsed work and fused-rank scores; deterministic JSONL metrics gate releases while optional local Ragas judges diagnose semantic quality.</td></tr>
               <tr><td>Backup</td><td>Stop the app and copy <code>data/qdrant</code>. Source documents remain the canonical rebuild path.</td></tr>
             </tbody>
           </table>
@@ -252,12 +256,12 @@ class ChatProvider(Protocol):
     <section id="decisions">
       <div class="wrap">
         <h2>Key decisions and upgrade triggers</h2>
-        <div class="decision"><b>Direct APIs</b><span>Keep direct model APIs and use only LangChain's standalone text splitters; skip orchestration frameworks until they remove more code than they introduce.</span></div>
+        <div class="decision"><b>Focused frameworks</b><span>Use LangChain's standalone splitter, rank-bm25, native Ollama schemas, and optional Ragas evaluation. Keep orchestration in plain Python while the visible loop remains smaller.</span></div>
         <div class="decision"><b>Local Qdrant</b><span>Skip Docker and cloud storage. Move to Qdrant server when multiple processes, remote clients, or concurrent ingestion are required.</span></div>
         <div class="decision"><b>Structured chunks</b><span>Preserve Markdown headings and natural text boundaries, then enforce configurable character limits with overlap.</span></div>
-        <div class="decision"><b>Lightweight hybrid retrieval</b><span>Fuse dense similarity with keyword coverage. Add a local cross-encoder only if the evaluation set proves top-k precision is still insufficient.</span></div>
+        <div class="decision"><b>Hybrid retrieval</b><span>Fuse cosine and BM25Plus rankings with RRF. Add a local cross-encoder only if the evaluation set proves top-k precision is still insufficient.</span></div>
         <div class="decision"><b>No cloud IaC</b><span>Pulumi, AWS, and paid hosting conflict with the local zero-cost scope. The provider and vector-store seams preserve a migration path.</span></div>
-        <div class="decision"><b>Golden evaluation dataset</b><span>A checked-in schema and live runner score human-verified questions, expected evidence, required facts, abstention, and latency. Private cases and results remain outside Git.</span></div>
+        <div class="decision"><b>Golden evaluation dataset</b><span>A checked-in schema and deterministic runner score human-verified questions, expected evidence, required facts, abstention, and latency. Ragas is a secondary local diagnostic and never promotes silver cases.</span></div>
       </div>
     </section>
   </main>

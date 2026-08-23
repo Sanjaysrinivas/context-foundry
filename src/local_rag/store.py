@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 from qdrant_client import QdrantClient, models
+from rank_bm25 import BM25Plus  # type: ignore[import-untyped]
 
 from local_rag.domain import Chunk, DocumentInfo, RAGError, SearchResult
 
@@ -30,6 +31,7 @@ STOP_WORDS = {
     "who",
     "with",
 }
+RRF_K = 60
 
 
 class VectorStore(Protocol):
@@ -134,34 +136,43 @@ class QdrantVectorStore:
             limit=max(64, limit * 8),
             with_payload=True,
         )
-        query_tokens = _tokens(query)
-        candidates: dict[str, tuple[dict[str, Any], float, float]] = {}
+        payloads: dict[str, dict[str, Any]] = {}
+        dense_ranking: list[str] = []
         for point in response.points:
             payload = cast(dict[str, Any], point.payload or {})
-            candidates[str(point.id)] = (payload, max(0.0, float(point.score)), 0.0)
+            key = str(point.id)
+            payloads[key] = payload
+            if float(point.score) >= threshold:
+                dense_ranking.append(key)
 
-        if query_tokens:
-            # ponytail: a payload scan is sufficient for a local, single-user corpus.
-            # Replace it with Qdrant sparse vectors only when measured corpus scale requires it.
-            for record in self._scroll(query_filter):
-                payload = cast(dict[str, Any], record.payload or {})
-                lexical_score = len(query_tokens & _tokens(str(payload.get("text", "")))) / len(
-                    query_tokens
+        # ponytail: BM25 scans the local payload corpus; move sparse vectors into Qdrant only
+        # when a measured corpus-size regression justifies an index migration.
+        records = self._scroll(query_filter)
+        record_ids: list[str] = []
+        corpus: list[list[str]] = []
+        for record in records:
+            payload = cast(dict[str, Any], record.payload or {})
+            key = str(record.id)
+            payloads[key] = payload
+            record_ids.append(key)
+            corpus.append(_lexical_terms(str(payload.get("text", ""))))
+
+        query_terms = _lexical_terms(query)
+        lexical_ranking: list[str] = []
+        if query_terms and corpus:
+            lexical_scores = BM25Plus(corpus).get_scores(query_terms)
+            lexical_ranking = [
+                record_ids[index]
+                for index in sorted(
+                    range(len(record_ids)), key=lambda item: lexical_scores[item], reverse=True
                 )
-                if lexical_score:
-                    key = str(record.id)
-                    _, dense_score, _ = candidates.get(key, (payload, 0.0, 0.0))
-                    candidates[key] = (payload, dense_score, lexical_score)
+                if lexical_scores[index] > 0
+            ]
 
-        ranked: list[tuple[float, dict[str, Any]]] = []
-        for payload, dense_score, lexical_score in candidates.values():
-            if dense_score < threshold and lexical_score < 0.5:
-                continue
-            ranked.append((0.75 * dense_score + 0.25 * lexical_score, payload))
-
-        ranked.sort(key=lambda item: item[0], reverse=True)
+        fused = _reciprocal_rank_fusion(dense_ranking, lexical_ranking)
         results: list[SearchResult] = []
-        for score, payload in ranked[:limit]:
+        for key, score in fused[:limit]:
+            payload = payloads[key]
             results.append(
                 SearchResult(
                     source=str(payload.get("source", "unknown")),
@@ -266,7 +277,7 @@ class QdrantVectorStore:
         )
 
 
-def _tokens(text: str) -> set[str]:
+def lexical_tokens(text: str) -> set[str]:
     return set(_lexical_terms(text))
 
 
@@ -284,3 +295,17 @@ def _singularize(token: str) -> str:
     if len(token) > 3 and token.endswith("s") and not token.endswith(("is", "ss", "us")):
         return token[:-1]
     return token
+
+
+def _reciprocal_rank_fusion(*rankings: list[str]) -> list[tuple[str, float]]:
+    active_rankings = [ranking for ranking in rankings if ranking]
+    scores: dict[str, float] = {}
+    for ranking in active_rankings:
+        for rank, key in enumerate(ranking, 1):
+            scores[key] = scores.get(key, 0.0) + 1 / (RRF_K + rank)
+    maximum = len(active_rankings) / (RRF_K + 1)
+    return sorted(
+        ((key, score / maximum) for key, score in scores.items()),
+        key=lambda item: item[1],
+        reverse=True,
+    )

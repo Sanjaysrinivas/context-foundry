@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from local_rag.api import create_app
 from local_rag.config import Settings
-from local_rag.domain import Chunk, DocumentInfo, SearchResult
+from local_rag.domain import Chunk, DocumentInfo, GroundedClaim, GroundedResponse, SearchResult
 from local_rag.service import RAGService
 
 
@@ -15,12 +15,17 @@ class FakeEmbeddings:
 
 
 class FakeChat:
-    async def answer(self, question: str, context: str) -> str:
-        assert question and "notes.txt" in context
-        return (
-            "**The evidence stays local** [1].\n\n"
-            "| Location | Access |\n|---|---|\n| Local | Private [1] |\n\n"
-            "<script>alert('unsafe')</script> [1]"
+    async def answer(self, question: str, context: str, citation_count: int) -> GroundedResponse:
+        assert question and "notes.txt" in context and citation_count == 1
+        return GroundedResponse(
+            claims=[
+                GroundedClaim(
+                    text="**The evidence stays local**.\n\n"
+                    "| Location | Access |\n|---|---|\n| Local | Private |\n\n"
+                    "<script>alert('unsafe')</script>",
+                    citations=[1],
+                )
+            ]
         )
 
 

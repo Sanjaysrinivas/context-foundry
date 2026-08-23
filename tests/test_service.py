@@ -1,7 +1,9 @@
-import re
-
-from local_rag.domain import Chunk, DocumentInfo, SearchResult
+from local_rag.domain import Chunk, DocumentInfo, GroundedClaim, GroundedResponse, SearchResult
 from local_rag.service import NO_EVIDENCE_RESPONSE, RAGService
+
+
+def claim(text: str, *citations: int) -> GroundedClaim:
+    return GroundedClaim(text=text, citations=list(citations or (1,)))
 
 
 class FakeEmbeddings:
@@ -14,21 +16,23 @@ class FakeEmbeddings:
 
 
 class FakeChat:
-    def __init__(self, responses: list[str] | None = None) -> None:
-        self.context = ""
+    def __init__(self, responses: list[GroundedResponse] | None = None) -> None:
         self.contexts: list[str] = []
         self.questions: list[str] = []
+        self.citation_counts: list[int] = []
         self.responses = responses or []
 
-    async def answer(self, question: str, context: str) -> str:
-        self.context = context
+    @property
+    def context(self) -> str:
+        return self.contexts[-1]
+
+    async def answer(self, question: str, context: str, citation_count: int) -> GroundedResponse:
         self.contexts.append(context)
         self.questions.append(question)
+        self.citation_counts.append(citation_count)
         if self.responses:
             return self.responses.pop(0)
-        citation = re.search(r"\[(\d+)]", context)
-        assert citation
-        return f"Grounded answer for {question.splitlines()[0]} [{citation.group(1)}]"
+        return GroundedResponse(claims=[claim(f"Grounded answer for {question}")])
 
 
 class FakeStore:
@@ -55,7 +59,7 @@ class FakeStore:
         threshold: float,
         document_ids: list[str] | None = None,
     ) -> list[SearchResult]:
-        assert vector and limit in {4, 8} and threshold == 0.25
+        assert vector and limit == 4 and threshold == 0.25
         assert query
         self.queries.append(query)
         self.limits.append(limit)
@@ -115,45 +119,156 @@ async def test_ingest_embeds_and_stores_chunks() -> None:
     assert document.document_id == document.source_sha256
 
 
-async def test_answer_includes_retrieved_context() -> None:
+async def test_answer_renders_schema_claims_and_citations() -> None:
     match = SearchResult("notes.txt", 1, "Private documents stay local.", 0.91)
-    store = FakeStore([match])
-    chat = FakeChat()
+    chat = FakeChat(
+        [
+            GroundedResponse(
+                style="bullets",
+                claims=[
+                    claim("Documents stay local"),
+                    claim("Documents remain private"),
+                ],
+            )
+        ]
+    )
 
-    result = await service(store, chat).ask("Where are documents stored?")
+    result = await service(FakeStore([match]), chat).ask("Where are documents stored?")
 
     assert result.citations == [match]
     assert "notes.txt, page 1" in chat.context
-    assert result.text.endswith("[1]")
+    assert chat.citation_counts == [1]
+    assert result.text == "- Documents stay local [1]\n- Documents remain private [1]"
 
 
-async def test_answer_cleans_and_sentence_splits_legacy_pdf_context() -> None:
+async def test_answer_renders_ordered_steps_and_partial_abstention() -> None:
+    match = SearchResult("report.pdf", 8, "Collect evidence then review it.", 0.91)
+    chat = FakeChat(
+        [
+            GroundedResponse(
+                style="steps",
+                claims=[
+                    claim("Collect evidence"),
+                    claim("Review it"),
+                ],
+                unsupported=["deployment decision"],
+            )
+        ]
+    )
+
+    result = await service(FakeStore([match]), chat).ask("Trace the process")
+
+    assert result.text == (
+        "1. Collect evidence [1]\n2. Review it [1]\n\n"
+        "Insufficient evidence for: deployment decision"
+    )
+
+
+async def test_answer_decodes_literal_json_unicode_escapes() -> None:
+    match = SearchResult("report.pdf", 8, "Next gold version", 0.91)
+    chat = FakeChat([GroundedResponse(claims=[claim(r"Silver \u2192 gold")])])
+
+    result = await service(FakeStore([match]), chat).ask("What comes next?")
+
+    assert result.text == "Silver → gold [1]"
+
+
+async def test_answer_cleans_and_formats_pdf_context() -> None:
     match = SearchResult(
         "report.pdf",
         9,
-        "Use <mark>`chunk_id` s</mark>. Store the verified text.",
+        "```\nCollect evidence\n  ↓\nExtract facts\n  ↓\nValidate\n"
+        "  ├─ support\n  └─ answerability\n\nUse <mark>`chunk_id` s</mark>.",
         0.91,
     )
     chat = FakeChat()
 
-    result = await service(FakeStore([match]), chat).ask("What should be stored?")
+    result = await service(FakeStore([match]), chat).ask("Trace the lifecycle")
 
-    assert "<mark>" not in chat.context
-    assert "`chunk_ids`.\nStore the verified text." in chat.context
+    assert "1. Collect evidence" in chat.context
+    assert "3. Validate\n   - support\n   - answerability" in chat.context
+    assert "```" not in chat.context
     assert "<mark>" not in result.citations[0].text
 
 
+async def test_answer_adds_context_that_contributes_missing_query_terms() -> None:
+    first = SearchResult("report.pdf", 26, "Generated cases are synthetic silver.", 0.91)
+    second = SearchResult("report.pdf", 27, "Human review can approve, edit, or reject.", 0.82)
+    chat = FakeChat()
+
+    await service(FakeStore([first, second]), chat).ask(
+        "Explain synthetic silver and human review options"
+    )
+
+    assert first.text in chat.context
+    assert second.text in chat.context
+    assert chat.citation_counts == [2]
+
+
+async def test_answer_uses_top_context_when_it_covers_most_question_concepts() -> None:
+    complete = SearchResult(
+        "report.pdf",
+        8,
+        "Coverage-aware sampling leads through validation, human review, frozen dataset "
+        "release, evaluation, and the next gold version.",
+        1.0,
+    )
+    alternate = SearchResult(
+        "report.pdf", 7, "A different architecture lifecycle has evidence layers.", 0.92
+    )
+    chat = FakeChat()
+
+    await service(FakeStore([complete, alternate]), chat).ask(
+        "Trace the complete lifecycle from coverage-aware sampling to the next gold dataset "
+        "version, including validation, human review, frozen release, and evaluation layers"
+    )
+
+    assert complete.text in chat.context
+    assert alternate.text not in chat.context
+    assert chat.citation_counts == [1]
+
+
+async def test_answer_does_not_overfeed_redundant_retrieved_context() -> None:
+    complete = SearchResult(
+        "report.pdf",
+        8,
+        "Coverage-aware evidence sampling, automatic validation, human review, "
+        "frozen dataset release, evaluation, and next gold version.",
+        1.0,
+    )
+    related = SearchResult(
+        "report.pdf",
+        1,
+        "Architecture uses evidence sampling, validation, review, release, and evaluation.",
+        0.97,
+    )
+    chat = FakeChat()
+
+    result = await service(FakeStore([complete, related]), chat).ask(
+        "Trace coverage-aware evidence sampling through automatic validation, human review, "
+        "frozen dataset release, evaluation, and the next gold version"
+    )
+
+    assert complete.text in chat.context
+    assert related.text not in chat.context
+    assert chat.citation_counts == [1]
+    assert result.citations == [complete, related]
+
+
 async def test_answer_skips_chat_without_evidence() -> None:
-    result = await service(FakeStore()).ask("Unknown?")
+    chat = FakeChat()
 
+    result = await service(FakeStore(), chat).ask("Unknown?")
+
+    assert result.text == NO_EVIDENCE_RESPONSE
     assert result.citations == []
-    assert "could not find" in result.text
+    assert not chat.questions
 
 
-async def test_retrieve_covers_compound_question_parts() -> None:
+async def test_retrieve_and_answer_cover_compound_question_parts() -> None:
     validation = SearchResult("report.pdf", 8, "evidence support", 0.8, "doc")
     anchors = SearchResult("report.pdf", 9, "source hash and page coordinates", 0.7, "doc")
-    chunk_ids = SearchResult("report.pdf", 9, "chunk IDs change", 0.6, "doc")
+    chunk_ids = SearchResult("report.pdf", 10, "chunk IDs change", 0.6, "doc")
     duplicate = SearchResult("report.pdf", 1, "stable evidence", 0.56, "doc")
     queries = [
         "List every automatic validation check",
@@ -167,199 +282,31 @@ async def test_retrieve_covers_compound_question_parts() -> None:
             queries[2]: [chunk_ids, duplicate],
         }
     )
-    embeddings = FakeEmbeddings()
-    chat = FakeChat()
-    rag = RAGService(
-        embeddings,
-        chat,
-        store,
-        chunk_size=30,
-        chunk_overlap=5,
-        top_k=4,
-        score_threshold=0.25,
+    chat = FakeChat(
+        [
+            GroundedResponse(claims=[claim("Validation")]),
+            GroundedResponse(claims=[claim("Anchors")]),
+            GroundedResponse(claims=[claim("Chunk IDs change")]),
+        ]
     )
 
-    answer = await rag.ask(
+    answer = await service(store, chat).ask(
         "List every automatic validation check, specify every stable evidence-anchor "
         "field and explain why chunk IDs cannot be gold labels"
     )
-    results = answer.citations
 
     assert store.queries == queries
-    assert store.limits == [8, 8, 4]
-    assert [result.text for result in results] == [
+    assert store.limits == [4, 4, 4]
+    assert [result.text for result in answer.citations] == [
         "evidence support",
         "source hash and page coordinates",
         "chunk IDs change",
         "stable evidence",
     ]
-    assert embeddings.batch_sizes == [3]
-    assert chat.questions[:2] == queries[:2]
-    assert chat.questions[2].startswith(queries[2])
-    assert "every change condition" in chat.questions[2]
-    assert chat.questions[2].endswith("then stop.")
-    assert len(chat.contexts) == 3
-    assert "evidence support" in chat.contexts[0]
-    assert "source hash and page coordinates" in chat.contexts[1]
-    assert "chunk IDs change" in chat.contexts[2]
-    assert "## List every automatic validation check" in answer.text
-    assert "## specify every stable evidence-anchor field" in answer.text
-    assert f"Grounded answer for {queries[0]} [1]" in answer.text
-    assert f"Grounded answer for {queries[1]} [2]" in answer.text
-    assert f"Grounded answer for {queries[2]} [3]" in answer.text
-
-
-async def test_answer_repairs_missing_inline_citations() -> None:
-    match = SearchResult("notes.txt", 1, "Private documents stay local.", 0.91)
-    chat = FakeChat(["Documents stay local.", "Documents stay local [1]."])
-
-    result = await service(FakeStore([match]), chat).ask("Where are documents stored?")
-
-    assert result.text == "Documents stay local [1]."
-    assert len(chat.questions) == 2
-    assert "Previous draft:\nDocuments stay local." in chat.questions[1]
-
-
-async def test_answer_repairs_citation_heading_with_uncited_claims() -> None:
-    match = SearchResult("notes.txt", 1, "Use a source hash.", 0.91)
-    chat = FakeChat(["[1] Fields:\n- source hash", "Fields:\n- source hash [1]"])
-
-    result = await service(FakeStore([match]), chat).ask("Which fields are stable?")
-
-    assert result.text == "Fields:\n- source hash [1]"
-    assert len(chat.questions) == 2
-
-
-async def test_answer_accepts_cited_nested_list_under_uncited_parent_labels() -> None:
-    match = SearchResult("report.pdf", 8, "Automatic validation\n├─ support", 0.91)
-    draft = "1. Automatic validation\n   a. evidence support [1]\n   b. answerability [1]"
-    chat = FakeChat([draft])
-
-    result = await service(FakeStore([match]), chat).ask("Trace the complete lifecycle")
-
-    assert result.text == draft
-    assert len(chat.questions) == 1
-
-
-async def test_answer_structures_extracted_flow_diagram_for_generation() -> None:
-    match = SearchResult(
-        "report.pdf",
-        8,
-        "```\nCollect evidence\n  ↓\nExtract facts\n  ↓\nValidate\n"
-        "  ├─ support\n  └─ answerability",
-        0.91,
-    )
-    chat = FakeChat()
-
-    await service(FakeStore([match]), chat).ask("Trace the complete lifecycle")
-
-    assert "1. Collect evidence" in chat.context
-    assert "3. Validate\n   - support\n   - answerability" in chat.context
-    assert "```" not in chat.context
-
-
-async def test_explanation_context_excludes_adjacent_tangents() -> None:
-    match = SearchResult(
-        "report.pdf",
-        26,
-        "Automatically generated cases are synthetic silver. "
-        "A case becomes human-verified gold only after human review. "
-        "Anchor gold labels to immutable source documents. "
-        "Grow the portfolio to 300 cases.",
-        0.91,
-    )
-    chat = FakeChat()
-
-    await service(FakeStore([match]), chat).ask(
-        "explain why generated cases remain silver until human approval"
-    )
-
-    assert "Automatically generated cases are synthetic silver." in chat.context
-    assert "only after human review." in chat.context
-    assert "Anchor gold labels" not in chat.context
-    assert "300 cases" not in chat.context
-
-
-async def test_answer_removes_full_abstention_after_cited_evidence() -> None:
-    match = SearchResult("report.pdf", 8, "Supported evidence", 0.91)
-    chat = FakeChat(
-        [
-            f"Supported answer [1].\n\n{NO_EVIDENCE_RESPONSE}\n\n"
-            "Insufficient evidence for: supported answer [1]"
-        ]
-    )
-
-    result = await service(FakeStore([match]), chat).ask("What is supported?")
-
-    assert result.text == "Supported answer [1]."
-
-
-async def test_answer_repairs_uncited_claim_line_after_cited_line() -> None:
-    match = SearchResult("notes.txt", 1, "Documents stay local.", 0.91)
-    chat = FakeChat(
-        [
-            "Documents stay local [1].\nThey remain private.",
-            "Documents stay local [1].\nThey remain private [1].",
-        ]
-    )
-
-    result = await service(FakeStore([match]), chat).ask("Where are documents stored?")
-
-    assert result.text == "Documents stay local [1].\nThey remain private [1]."
-    assert len(chat.questions) == 2
-
-
-async def test_answer_repairs_supported_claims_before_partial_abstention() -> None:
-    match = SearchResult("notes.txt", 1, "Documents stay local.", 0.91)
-    chat = FakeChat(
-        [
-            "Documents stay local.\n\nInsufficient evidence for: retention period",
-            "Documents stay local [1].\n\nInsufficient evidence for: retention period",
-        ]
-    )
-
-    result = await service(FakeStore([match]), chat).ask("Where are documents stored?")
-
-    assert result.text.startswith("Documents stay local [1].")
-    assert len(chat.questions) == 2
-
-
-async def test_exhaustive_question_excludes_competing_unrelated_schema() -> None:
-    direct = SearchResult("report.pdf", 9, "Evidence anchors use a source hash and page.", 0.8)
-    generic_schema = SearchResult(
-        "report.pdf",
-        12,
-        "Expected evidence: stable evidence anchors, reviewer, and model version.",
-        0.79,
-    )
-    chat = FakeChat()
-
-    await service(FakeStore([direct, generic_schema]), chat).ask(
-        "Specify every stable evidence anchor field"
-    )
-
-    assert direct.text in chat.context
-    assert generic_schema.text not in chat.context
-
-
-async def test_list_every_prefers_complete_structured_list() -> None:
-    overview = SearchResult(
-        "report.pdf", 25, "Automatic validation is recommended.\nUse human review.", 0.9
-    )
-    complete = SearchResult(
-        "report.pdf",
-        8,
-        "Automatic validation\n- evidence support\n- answerability\n- closed-book test",
-        0.82,
-    )
-    chat = FakeChat()
-
-    await service(FakeStore([overview, complete]), chat).ask(
-        "List every automatic validation check"
-    )
-
-    assert complete.text in chat.context
-    assert overview.text not in chat.context
+    assert chat.questions == queries
+    assert "Validation [1]" in answer.text
+    assert "Anchors [2]" in answer.text
+    assert "Chunk IDs change [3]" in answer.text
 
 
 async def test_document_lifecycle() -> None:
@@ -370,6 +317,8 @@ async def test_document_lifecycle() -> None:
     assert await rag.list_documents() == [document]
     assert await rag.delete_document(document.document_id)
     assert await rag.list_documents() == []
+    await rag.clear()
+    rag.close()
 
 
 async def test_ingestion_batches_embeddings() -> None:

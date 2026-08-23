@@ -12,9 +12,9 @@ from local_rag.documents import (
     flow_diagram_markdown,
     load_document,
 )
-from local_rag.domain import Answer, DocumentInfo, RAGError, SearchResult
+from local_rag.domain import Answer, DocumentInfo, GroundedResponse, RAGError, SearchResult
 from local_rag.providers import ChatProvider, EmbeddingProvider
-from local_rag.store import VectorStore, _lexical_terms
+from local_rag.store import VectorStore, lexical_tokens
 
 QUERY_BOUNDARY_RE = re.compile(
     r"(?:[;?]\s+|,\s*(?=(?:(?:then|also)\s+)?"
@@ -23,13 +23,22 @@ QUERY_BOUNDARY_RE = re.compile(
     r"(?:explain|describe|compare|list|specify|identify|summarize|why|how|what|which|who|when|where)\b))",
     re.IGNORECASE,
 )
-CITATION_RE = re.compile(r"\[(\d+)]")
-TABLE_SEPARATOR_RE = re.compile(r"^\|?(?:\s*:?-{3,}:?\s*\|)+$")
-LIST_ITEM_RE = re.compile(r"^(?:[-*+]|\d+[.)]|[A-Za-z][.)])\s+")
-CONTEXT_SCORE_WINDOW = 0.07
-DEFINITION_TERMS = {"define", "include", "require", "should", "use"}
-SENTENCE_BREAK_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z*])")
+UNICODE_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
 NO_EVIDENCE_RESPONSE = "I could not find enough relevant evidence in the indexed documents."
+MIN_NEW_QUERY_TERMS = 2
+TOP_CONTEXT_COVERAGE_THRESHOLD = 0.6
+QUESTION_CONTROL_TERMS = {
+    "complete",
+    "describe",
+    "every",
+    "explain",
+    "identify",
+    "include",
+    "list",
+    "specify",
+    "summarize",
+    "trace",
+}
 
 
 class RAGService:
@@ -100,7 +109,7 @@ class RAGService:
                     self.store.search,
                     vector,
                     query,
-                    self.top_k * 2 if "every" in query.casefold().split() else self.top_k,
+                    self.top_k,
                     self.score_threshold,
                     document_ids,
                 )
@@ -114,10 +123,7 @@ class RAGService:
     async def ask(self, question: str, document_ids: list[str] | None = None) -> Answer:
         clean_question = question.strip()
         queries, groups = await self._search_groups(clean_question, document_ids)
-        scoped_groups = [
-            _generation_matches(query, group) for query, group in zip(queries, groups, strict=True)
-        ]
-        evidence = _interleave_unique(scoped_groups, queries, self.top_k * len(queries))
+        evidence = _interleave_unique(groups, queries, self.top_k * len(queries))
         if not evidence:
             return Answer(NO_EVIDENCE_RESPONSE, [])
 
@@ -125,40 +131,25 @@ class RAGService:
             _result_key(match): index for index, (match, _query) in enumerate(evidence, 1)
         }
         answers: list[str] = []
-        for query, group in zip(queries, scoped_groups, strict=True):
-            scoped = [match for match in group if _result_key(match) in citation_numbers]
+        for query, group in zip(queries, groups, strict=True):
+            scoped = [
+                match
+                for match in _select_generation_context(query, group)
+                if _result_key(match) in citation_numbers
+            ]
             if not scoped:
                 text = f"Insufficient evidence for: {query}"
             else:
                 context = "\n\n".join(
-                    f"[{index}] {match.source}, page {match.page}\n"
-                    f"{_context_text(match.text, query)}"
+                    f"[{index}] {match.source}, page {match.page}\n{_context_text(match.text)}"
                     for index, match in enumerate(scoped, 1)
                 )
-                valid_citations = set(range(1, len(scoped) + 1))
-                generation_question = _generation_question(query)
-                text = _strip_contradictory_abstention(
-                    await self.chat_provider.answer(generation_question, context)
-                )
-                if _needs_citation_repair(text, valid_citations):
-                    text = _strip_contradictory_abstention(
-                        await self.chat_provider.answer(
-                            f"{generation_question}\n\n"
-                            "Rewrite the previous draft using only the evidence. "
-                            "End every supported sentence or list item with at least one valid [n] "
-                            "citation and return only the revised answer.\n\n"
-                            f"Previous draft:\n{text}",
-                            context,
-                        )
-                    )
-                if _needs_citation_repair(text, valid_citations):
-                    text = f"Insufficient evidence for: {query}"
-                else:
-                    local_to_global = {
-                        index: citation_numbers[_result_key(match)]
-                        for index, match in enumerate(scoped, 1)
-                    }
-                    text = _remap_citations(text, local_to_global)
+                draft = await self.chat_provider.answer(query, context, len(scoped))
+                local_to_global = {
+                    index: citation_numbers[_result_key(match)]
+                    for index, match in enumerate(scoped, 1)
+                }
+                text = _render_grounded_response(draft, local_to_global, query)
             answers.append(f"## {query}\n\n{text}" if len(queries) > 1 else text)
 
         text = "\n\n".join(answers)
@@ -211,127 +202,51 @@ def _result_key(match: SearchResult) -> tuple[str, int, str]:
     return (match.document_id or match.source, match.page, match.text)
 
 
-def _context_text(text: str, query: str) -> str:
+def _select_generation_context(query: str, matches: list[SearchResult]) -> list[SearchResult]:
+    """Keep the top result, then only passages that add meaningful query coverage."""
+    query_terms = lexical_tokens(query) - QUESTION_CONTROL_TERMS
+    if matches and query_terms:
+        top_coverage = len(query_terms & lexical_tokens(matches[0].text)) / len(query_terms)
+        if top_coverage >= TOP_CONTEXT_COVERAGE_THRESHOLD:
+            return matches[:1]
+
+    selected: list[SearchResult] = []
+    covered: set[str] = set()
+    for match in matches:
+        matching_terms = query_terms & lexical_tokens(match.text)
+        if not selected or len(matching_terms - covered) >= MIN_NEW_QUERY_TERMS:
+            selected.append(match)
+            covered.update(matching_terms)
+    return selected
+
+
+def _context_text(text: str) -> str:
     diagram = flow_diagram_markdown(text)
-    if diagram:
-        return diagram
-    context = SENTENCE_BREAK_RE.sub("\n", text)
-    if not query.casefold().startswith(("explain ", "why ")):
-        return context
-    query_terms = set(_lexical_terms(query)) - {"explain", "reason"}
-    relevant = [
-        line
-        for line in context.splitlines()
-        if len(query_terms.intersection(_lexical_terms(line))) >= 2
-    ]
-    return "\n".join(relevant) or context
+    return diagram or text
 
 
-def _generation_question(query: str) -> str:
-    if query.casefold().startswith(("explain ", "why ", "how ")):
-        return (
-            f"{query}\nInclude every change condition directly stated as a reason. "
-            "Do not contrast categories the question did not ask about or force additional "
-            "reasons. Exclude adjacent recommendations, implementation details, metrics, and "
-            "targets, then stop."
+def _render_grounded_response(
+    response: GroundedResponse, citation_mapping: dict[int, int], query: str
+) -> str:
+    claims: list[str] = []
+    for claim in response.claims:
+        citations = sorted({citation_mapping[number] for number in claim.citations})
+        references = " ".join(f"[{number}]" for number in citations)
+        claim_text = UNICODE_ESCAPE_RE.sub(
+            lambda match: chr(int(match.group(1), 16)), claim.text.strip()
         )
-    return query
+        claims.append(f"{claim_text} {references}")
 
+    if response.style == "steps":
+        supported = "\n".join(f"{index}. {claim}" for index, claim in enumerate(claims, 1))
+    elif response.style == "bullets":
+        supported = "\n".join(f"- {claim}" for claim in claims)
+    else:
+        supported = "\n\n".join(claims)
 
-def _generation_matches(query: str, group: list[SearchResult]) -> list[SearchResult]:
-    if not group:
-        return []
-    score_window = 0.1 if "every" in query.casefold().split() else CONTEXT_SCORE_WINDOW
-    minimum_score = group[0].score - score_window
-    competitive = [match for match in group if match.score >= minimum_score]
-    if "every" not in query.casefold().split():
-        return competitive
-
-    query_terms = _lexical_terms(query)
-    query_bigrams = set(zip(query_terms, query_terms[1:], strict=False))
-    direct = [match for match in competitive if query_bigrams & _text_bigrams(match.text)]
-    if query.casefold().lstrip().startswith("list "):
-        candidates = direct or competitive
-        most_complete = max(candidates, key=lambda match: len(match.text.splitlines()))
-        if len(most_complete.text.splitlines()) >= 4:
-            return [most_complete]
-    definitions = [
-        match for match in direct if _defines_requested_phrase(query_bigrams, match.text)
-    ]
-    return definitions or direct or competitive
-
-
-def _text_bigrams(text: str) -> set[tuple[str, str]]:
-    terms = _lexical_terms(text)
-    return set(zip(terms, terms[1:], strict=False))
-
-
-def _defines_requested_phrase(query_bigrams: set[tuple[str, str]], text: str) -> bool:
-    terms = _lexical_terms(text)
-    for index in range(len(terms) - 1):
-        if (terms[index], terms[index + 1]) not in query_bigrams:
-            continue
-        nearby = terms[max(0, index - 3) : index + 7]
-        if DEFINITION_TERMS.intersection(nearby):
-            return True
-    return False
-
-
-def _needs_citation_repair(text: str, valid_citations: set[int]) -> bool:
-    claim_lines: list[str] = []
-    raw_lines = text.splitlines()
-    lines = [line.strip() for line in raw_lines]
-    for index, (raw_line, stripped) in enumerate(zip(raw_lines, lines, strict=True)):
-        lowered = stripped.casefold()
-        is_heading = stripped.endswith(":") and not any(
-            character in stripped[:-1] for character in ".!?"
-        )
-        next_line = next((line for line in raw_lines[index + 1 :] if line.strip()), "")
-        is_list_parent = bool(LIST_ITEM_RE.match(stripped)) and (
-            len(next_line) - len(next_line.lstrip()) > len(raw_line) - len(raw_line.lstrip())
-        )
-        is_table_structure = bool(TABLE_SEPARATOR_RE.fullmatch(stripped)) or (
-            stripped.startswith("|")
-            and index + 1 < len(lines)
-            and bool(TABLE_SEPARATOR_RE.fullmatch(lines[index + 1]))
-        )
-        if (
-            not stripped
-            or stripped.startswith("#")
-            or is_heading
-            or is_list_parent
-            or is_table_structure
-            or lowered.startswith("insufficient evidence for:")
-            or lowered == NO_EVIDENCE_RESPONSE.casefold()
-        ):
-            continue
-        claim_lines.append(stripped)
-    if not claim_lines:
-        return False
-    citations = {int(value) for value in CITATION_RE.findall("\n".join(claim_lines))}
-    if not citations or not citations.issubset(valid_citations):
-        return True
-    for claim in claim_lines:
-        claim_citations = {int(value) for value in CITATION_RE.findall(claim)}
-        if not claim_citations.intersection(valid_citations):
-            return True
-    return False
-
-
-def _strip_contradictory_abstention(text: str) -> str:
-    if not CITATION_RE.search(text):
-        return text
-    kept: list[str] = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        lowered = stripped.casefold()
-        if lowered == NO_EVIDENCE_RESPONSE.casefold() or (
-            lowered.startswith("insufficient evidence for:") and CITATION_RE.search(stripped)
-        ):
-            continue
-        kept.append(line)
-    return "\n".join(kept).strip()
-
-
-def _remap_citations(text: str, mapping: dict[int, int]) -> str:
-    return CITATION_RE.sub(lambda match: f"[{mapping[int(match.group(1))]}]", text)
+    unsupported = "; ".join(item.strip() for item in response.unsupported if item.strip())
+    if supported and unsupported:
+        return f"{supported}\n\nInsufficient evidence for: {unsupported}"
+    if supported:
+        return supported
+    return f"Insufficient evidence for: {unsupported or query}"

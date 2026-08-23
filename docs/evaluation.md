@@ -139,6 +139,23 @@ uv run local-rag-eval evaluation/private/cases.jsonl
 Use --base-url for another local port. The command prints JSON and exits with status 1 if a quality
 gate is missed. Run uv run local-rag-eval --help to see configurable thresholds.
 
+### Optional Ragas diagnostics
+
+The deterministic metrics above remain the reproducible release gate. Ragas adds local LLM-judge
+signals for qualities that phrase matching cannot measure:
+
+~~~powershell
+ollama pull qwen3:8b
+uv run --extra evaluation local-rag-eval-ragas evaluation/private/gold-v1.jsonl --judge-model qwen3:8b
+~~~
+
+The optional runner reports faithfulness, context precision, context recall, and factual
+correctness. It uses Ollama's OpenAI-compatible endpoint at `http://localhost:11434/v1` by default,
+so the evaluation stays local and free. Set `RAG_EVAL_MODEL` or pass `--judge-model`. The default
+`qwen3:8b` judge is intentionally stronger than the answering model; `llama3.2:3b` can fail Ragas'
+nested tool schemas. Ragas scores are diagnostic and may vary between runs. They never promote
+silver candidates or replace source-first human approval.
+
 ## Metrics and initial gates
 
 | Layer | Metric | Default gate | Meaning |
@@ -168,5 +185,5 @@ guarantees.
    change.
 4. Compare retrieval metrics before judging generated prose and inspect every abstention regression.
 5. Keep a development split for tuning and a locked holdout for release comparisons.
-6. Add local judges, neural rerankers, or larger frameworks only when measured gains justify their
-   latency and maintenance cost.
+6. Compare optional Ragas diagnostics after deterministic gates; add a neural reranker only when
+   the frozen dataset proves its retrieval gain justifies the latency.
