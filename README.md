@@ -1,4 +1,4 @@
-# Local RAG
+# Context Foundry
 
 [![CI](https://github.com/Sanjaysrinivas/context-foundry/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/Sanjaysrinivas/context-foundry/actions/workflows/ci.yml)
 [![Python 3.13](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)](https://www.python.org/)
