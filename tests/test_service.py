@@ -1,3 +1,5 @@
+import re
+
 from local_rag.domain import Chunk, DocumentInfo, SearchResult
 from local_rag.service import RAGService
 
@@ -12,12 +14,21 @@ class FakeEmbeddings:
 
 
 class FakeChat:
-    def __init__(self) -> None:
+    def __init__(self, responses: list[str] | None = None) -> None:
         self.context = ""
+        self.contexts: list[str] = []
+        self.questions: list[str] = []
+        self.responses = responses or []
 
     async def answer(self, question: str, context: str) -> str:
         self.context = context
-        return f"Grounded answer for {question} [1]"
+        self.contexts.append(context)
+        self.questions.append(question)
+        if self.responses:
+            return self.responses.pop(0)
+        citation = re.search(r"\[(\d+)]", context)
+        assert citation
+        return f"Grounded answer for {question} [{citation.group(1)}]"
 
 
 class FakeStore:
@@ -125,7 +136,7 @@ async def test_retrieve_covers_compound_question_parts() -> None:
     validation = SearchResult("report.pdf", 8, "evidence support", 0.8, "doc")
     anchors = SearchResult("report.pdf", 9, "source hash and page coordinates", 0.7, "doc")
     chunk_ids = SearchResult("report.pdf", 9, "chunk IDs change", 0.6, "doc")
-    duplicate = SearchResult("report.pdf", 1, "stable evidence", 0.5, "doc")
+    duplicate = SearchResult("report.pdf", 1, "stable evidence", 0.56, "doc")
     queries = [
         "List every automatic validation check",
         "specify every stable evidence-anchor field",
@@ -139,9 +150,10 @@ async def test_retrieve_covers_compound_question_parts() -> None:
         }
     )
     embeddings = FakeEmbeddings()
+    chat = FakeChat()
     rag = RAGService(
         embeddings,
-        FakeChat(),
+        chat,
         store,
         chunk_size=30,
         chunk_overlap=5,
@@ -149,10 +161,11 @@ async def test_retrieve_covers_compound_question_parts() -> None:
         score_threshold=0.25,
     )
 
-    results = await rag.retrieve(
-        "List every automatic validation check, then specify every stable evidence-anchor "
+    answer = await rag.ask(
+        "List every automatic validation check, specify every stable evidence-anchor "
         "field and explain why chunk IDs cannot be gold labels"
     )
+    results = answer.citations
 
     assert store.queries == queries
     assert [result.text for result in results] == [
@@ -162,6 +175,105 @@ async def test_retrieve_covers_compound_question_parts() -> None:
         "stable evidence",
     ]
     assert embeddings.batch_sizes == [3]
+    assert chat.questions == queries
+    assert len(chat.contexts) == 3
+    assert "evidence support" in chat.contexts[0]
+    assert "source hash and page coordinates" in chat.contexts[1]
+    assert "chunk IDs change" in chat.contexts[2]
+    assert "## List every automatic validation check" in answer.text
+    assert "## specify every stable evidence-anchor field" in answer.text
+    assert f"Grounded answer for {queries[0]} [1]" in answer.text
+    assert f"Grounded answer for {queries[1]} [2]" in answer.text
+    assert f"Grounded answer for {queries[2]} [3]" in answer.text
+
+
+async def test_answer_repairs_missing_inline_citations() -> None:
+    match = SearchResult("notes.txt", 1, "Private documents stay local.", 0.91)
+    chat = FakeChat(["Documents stay local.", "Documents stay local [1]."])
+
+    result = await service(FakeStore([match]), chat).ask("Where are documents stored?")
+
+    assert result.text == "Documents stay local [1]."
+    assert len(chat.questions) == 2
+    assert "Previous draft:\nDocuments stay local." in chat.questions[1]
+
+
+async def test_answer_repairs_citation_heading_with_uncited_claims() -> None:
+    match = SearchResult("notes.txt", 1, "Use a source hash.", 0.91)
+    chat = FakeChat(["[1] Fields:\n- source hash", "Fields:\n- source hash [1]"])
+
+    result = await service(FakeStore([match]), chat).ask("Which fields are stable?")
+
+    assert result.text == "Fields:\n- source hash [1]"
+    assert len(chat.questions) == 2
+
+
+async def test_answer_repairs_uncited_claim_line_after_cited_line() -> None:
+    match = SearchResult("notes.txt", 1, "Documents stay local.", 0.91)
+    chat = FakeChat(
+        [
+            "Documents stay local [1].\nThey remain private.",
+            "Documents stay local [1].\nThey remain private [1].",
+        ]
+    )
+
+    result = await service(FakeStore([match]), chat).ask("Where are documents stored?")
+
+    assert result.text == "Documents stay local [1].\nThey remain private [1]."
+    assert len(chat.questions) == 2
+
+
+async def test_answer_repairs_supported_claims_before_partial_abstention() -> None:
+    match = SearchResult("notes.txt", 1, "Documents stay local.", 0.91)
+    chat = FakeChat(
+        [
+            "Documents stay local.\n\nInsufficient evidence for: retention period",
+            "Documents stay local [1].\n\nInsufficient evidence for: retention period",
+        ]
+    )
+
+    result = await service(FakeStore([match]), chat).ask("Where are documents stored?")
+
+    assert result.text.startswith("Documents stay local [1].")
+    assert len(chat.questions) == 2
+
+
+async def test_exhaustive_question_excludes_competing_unrelated_schema() -> None:
+    direct = SearchResult("report.pdf", 9, "Evidence anchors use a source hash and page.", 0.8)
+    generic_schema = SearchResult(
+        "report.pdf",
+        12,
+        "Expected evidence: stable evidence anchors, reviewer, and model version.",
+        0.79,
+    )
+    chat = FakeChat()
+
+    await service(FakeStore([direct, generic_schema]), chat).ask(
+        "Specify every stable evidence anchor field"
+    )
+
+    assert direct.text in chat.context
+    assert generic_schema.text not in chat.context
+
+
+async def test_list_every_prefers_complete_structured_list() -> None:
+    overview = SearchResult(
+        "report.pdf", 25, "Automatic validation is recommended.\nUse human review.", 0.9
+    )
+    complete = SearchResult(
+        "report.pdf",
+        8,
+        "Automatic validation\n- evidence support\n- answerability\n- closed-book test",
+        0.82,
+    )
+    chat = FakeChat()
+
+    await service(FakeStore([overview, complete]), chat).ask(
+        "List every automatic validation check"
+    )
+
+    assert complete.text in chat.context
+    assert overview.text not in chat.context
 
 
 async def test_document_lifecycle() -> None:

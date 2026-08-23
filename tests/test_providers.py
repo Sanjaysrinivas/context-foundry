@@ -18,10 +18,14 @@ async def test_ollama_providers_parse_responses(monkeypatch: pytest.MonkeyPatch)
             assert payload["model"] == "embeddinggemma"
             return {"embeddings": [[0.1, 0.2], [0.3, 0.4]]}
         assert payload["model"] == "llama3.2:3b"
+        assert payload["options"] == {"temperature": 0, "seed": 0}
         messages = payload["messages"]
         assert isinstance(messages, list)
         if messages[0]["content"] != "System":
             assert "Do not use background knowledge" in messages[0]["content"]
+            assert "categorically different" in messages[0]["content"]
+            assert "scoped to the current question part" in messages[0]["content"]
+            assert "reproduce the directly relevant list completely" in messages[0]["content"]
             assert "Insufficient evidence for:" in messages[0]["content"]
         if "format" in payload:
             assert payload["format"] == "json"
@@ -56,6 +60,7 @@ async def test_compatible_providers_parse_responses(
             }
         if "response_format" in payload:
             assert payload["response_format"] == {"type": "json_object"}
+        assert payload["temperature"] == 0
         messages = payload["messages"]
         assert isinstance(messages, list)
         if messages[0]["content"] != "System":

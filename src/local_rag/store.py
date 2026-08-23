@@ -255,8 +255,20 @@ class QdrantVectorStore:
 
 
 def _tokens(text: str) -> set[str]:
-    return {
-        token
+    return set(_lexical_terms(text))
+
+
+def _lexical_terms(text: str) -> list[str]:
+    return [
+        _singularize(token)
         for token in (match.group().lower() for match in TOKEN_RE.finditer(text))
         if len(token) > 2 and token not in STOP_WORDS
-    }
+    ]
+
+
+def _singularize(token: str) -> str:
+    if len(token) > 4 and token.endswith("ies"):
+        return f"{token[:-3]}y"
+    if len(token) > 3 and token.endswith("s") and not token.endswith(("is", "ss", "us")):
+        return token[:-1]
+    return token
