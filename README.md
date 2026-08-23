@@ -159,10 +159,13 @@ To swap embeddings instead, change `RAG_EMBEDDING_PROVIDER` and `RAG_EMBEDDING_M
 | `RAG_CHAT_PROVIDER` | `ollama` | chat adapter |
 | `RAG_EMBEDDING_PROVIDER` | `ollama` | embedding adapter |
 | `RAG_OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API root |
+| `RAG_OPENAI_BASE_URL` | `http://localhost:1234/v1` | OpenAI-compatible API root |
+| `RAG_OPENAI_API_KEY` | empty | optional compatible-endpoint API key |
 | `RAG_CHAT_MODEL` | `llama3.2:3b` | generation model |
 | `RAG_EMBEDDING_MODEL` | `embeddinggemma` | embedding model |
 | `RAG_EVAL_MODEL` | `qwen3:8b` | optional local Ragas judge; should reliably follow tool schemas |
 | `RAG_DATA_DIR` | `data/qdrant` | persistent vector-store path |
+| `RAG_COLLECTION` | `documents` | Qdrant collection name |
 | `RAG_CHUNK_SIZE` | `900` | characters per chunk |
 | `RAG_CHUNK_OVERLAP` | `150` | repeated characters between chunks |
 | `RAG_EMBEDDING_BATCH_SIZE` | `32` | chunks embedded per provider request |
