@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import re
+from dataclasses import replace
 
-from local_rag.documents import chunk_pages, load_document
+from local_rag.documents import chunk_pages, clean_extracted_markdown, load_document
 from local_rag.domain import Answer, DocumentInfo, RAGError, SearchResult
 from local_rag.providers import ChatProvider, EmbeddingProvider
 from local_rag.store import VectorStore, _lexical_terms
@@ -21,6 +22,7 @@ CITATION_RE = re.compile(r"\[(\d+)]")
 TABLE_SEPARATOR_RE = re.compile(r"^\|?(?:\s*:?-{3,}:?\s*\|)+$")
 CONTEXT_SCORE_WINDOW = 0.07
 DEFINITION_TERMS = {"define", "include", "require", "should", "use"}
+SENTENCE_BREAK_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z*])")
 
 
 class RAGService:
@@ -91,13 +93,16 @@ class RAGService:
                     self.store.search,
                     vector,
                     query,
-                    self.top_k,
+                    self.top_k * 2 if "every" in query.casefold().split() else self.top_k,
                     self.score_threshold,
                     document_ids,
                 )
                 for query, vector in zip(queries, vectors, strict=True)
             ]
-        return queries, matches
+        return queries, [
+            [replace(match, text=clean_extracted_markdown(match.text)) for match in group]
+            for group in matches
+        ]
 
     async def ask(self, question: str, document_ids: list[str] | None = None) -> Answer:
         clean_question = question.strip()
@@ -122,14 +127,16 @@ class RAGService:
                 text = f"Insufficient evidence for: {query}"
             else:
                 context = "\n\n".join(
-                    f"[{index}] {match.source}, page {match.page}\n{match.text}"
+                    f"[{index}] {match.source}, page {match.page}\n{_context_text(match.text)}"
                     for index, match in enumerate(scoped, 1)
                 )
                 valid_citations = set(range(1, len(scoped) + 1))
-                text = await self.chat_provider.answer(query, context)
+                generation_question = _generation_question(query)
+                text = await self.chat_provider.answer(generation_question, context)
                 if _needs_citation_repair(text, valid_citations):
                     text = await self.chat_provider.answer(
-                        f"{query}\n\nRewrite the previous draft using only the evidence. "
+                        f"{generation_question}\n\n"
+                        "Rewrite the previous draft using only the evidence. "
                         "End every supported sentence or list item with at least one valid [n] "
                         "citation and return only the revised answer.\n\n"
                         f"Previous draft:\n{text}",
@@ -193,6 +200,16 @@ def _interleave_unique(
 
 def _result_key(match: SearchResult) -> tuple[str, int, str]:
     return (match.document_id or match.source, match.page, match.text)
+
+
+def _context_text(text: str) -> str:
+    return SENTENCE_BREAK_RE.sub("\n", text)
+
+
+def _generation_question(query: str) -> str:
+    if query.casefold().startswith(("explain ", "why ", "how ")):
+        return f"{query}\nInclude every change condition stated as a reason, then stop."
+    return query
 
 
 def _generation_matches(query: str, group: list[SearchResult]) -> list[SearchResult]:

@@ -28,7 +28,7 @@ class FakeChat:
             return self.responses.pop(0)
         citation = re.search(r"\[(\d+)]", context)
         assert citation
-        return f"Grounded answer for {question} [{citation.group(1)}]"
+        return f"Grounded answer for {question.splitlines()[0]} [{citation.group(1)}]"
 
 
 class FakeStore:
@@ -41,6 +41,7 @@ class FakeStore:
         self.matches = matches or []
         self.matches_by_query = matches_by_query or {}
         self.queries: list[str] = []
+        self.limits: list[int] = []
 
     def replace(self, chunks: list[Chunk], vectors: list[list[float]]) -> None:
         assert len(chunks) == len(vectors)
@@ -54,9 +55,10 @@ class FakeStore:
         threshold: float,
         document_ids: list[str] | None = None,
     ) -> list[SearchResult]:
-        assert vector and limit == 4 and threshold == 0.25
+        assert vector and limit in {4, 8} and threshold == 0.25
         assert query
         self.queries.append(query)
+        self.limits.append(limit)
         return self.matches_by_query.get(query, self.matches)
 
     def list_documents(self) -> list[DocumentInfo]:
@@ -125,6 +127,22 @@ async def test_answer_includes_retrieved_context() -> None:
     assert result.text.endswith("[1]")
 
 
+async def test_answer_cleans_and_sentence_splits_legacy_pdf_context() -> None:
+    match = SearchResult(
+        "report.pdf",
+        9,
+        "Use <mark>`chunk_id` s</mark>. Store the verified text.",
+        0.91,
+    )
+    chat = FakeChat()
+
+    result = await service(FakeStore([match]), chat).ask("What should be stored?")
+
+    assert "<mark>" not in chat.context
+    assert "`chunk_ids`.\nStore the verified text." in chat.context
+    assert "<mark>" not in result.citations[0].text
+
+
 async def test_answer_skips_chat_without_evidence() -> None:
     result = await service(FakeStore()).ask("Unknown?")
 
@@ -168,6 +186,7 @@ async def test_retrieve_covers_compound_question_parts() -> None:
     results = answer.citations
 
     assert store.queries == queries
+    assert store.limits == [8, 8, 4]
     assert [result.text for result in results] == [
         "evidence support",
         "source hash and page coordinates",
@@ -175,7 +194,10 @@ async def test_retrieve_covers_compound_question_parts() -> None:
         "stable evidence",
     ]
     assert embeddings.batch_sizes == [3]
-    assert chat.questions == queries
+    assert chat.questions[:2] == queries[:2]
+    assert chat.questions[2].startswith(queries[2])
+    assert "every change condition" in chat.questions[2]
+    assert chat.questions[2].endswith("then stop.")
     assert len(chat.contexts) == 3
     assert "evidence support" in chat.contexts[0]
     assert "source hash and page coordinates" in chat.contexts[1]

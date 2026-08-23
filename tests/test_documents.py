@@ -3,7 +3,7 @@ import hashlib
 import pymupdf
 import pytest
 
-from local_rag.documents import chunk_pages, load_document
+from local_rag.documents import chunk_pages, clean_extracted_markdown, load_document
 from local_rag.domain import Page, RAGError
 
 
@@ -26,6 +26,27 @@ def test_chunks_are_overlapping_and_stable() -> None:
     assert all(len(chunk.text) <= 30 for chunk in first)
     assert any(chunk.text.startswith("# Skills") for chunk in first)
     assert any("PostgreSQL" in chunk.text for chunk in first)
+
+
+def test_chunking_keeps_context_before_heading_like_example() -> None:
+    text = "Gold uses a source page.\n\nnot:\n\n### chunk `abc`\n\nThe latter changes."
+
+    chunks = chunk_pages([Page("report.md", 1, text)], chunk_size=200, overlap=20)
+
+    assert len(chunks) == 1
+    assert "not:" in chunks[0].text
+    assert "The latter changes" in chunks[0].text
+
+
+def test_cleans_pdf_presentation_markup() -> None:
+    assert (
+        clean_extracted_markdown(
+            "Use <mark>`chunk_id` s</mark> with coordinates/ normalized span "
+            "and near-miss / negative in <mark>`expected_evidence` .</mark>"
+        )
+        == "Use `chunk_ids` with coordinates/normalized span and near-miss / negative "
+        "in `expected_evidence`."
+    )
 
 
 @pytest.mark.unit

@@ -37,6 +37,21 @@ def test_local_qdrant_round_trip(tmp_path: Path) -> None:
     lexical_fallback = store.search([0.0, 1.0], "local evidence", limit=1, threshold=0.9)
     assert lexical_fallback[0].text == "Local evidence"
 
+    same_document = Chunk(
+        "492457a1-309a-46c9-b926-e7a1f94ce4bc",
+        "doc-1",
+        "notes.txt",
+        1,
+        0,
+        "Reindexed evidence",
+        "a" * 64,
+    )
+    store.replace([same_document], [[1.0, 0.0]])
+    assert store.list_documents()[0].chunks == 1
+    assert store.search([1.0, 0.0], "reindexed", limit=1, threshold=0.1)[0].text == (
+        "Reindexed evidence"
+    )
+
     replacement = Chunk(
         "49f4b5f6-b709-49cd-a460-f43a5f216e05",
         "doc-2",

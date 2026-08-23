@@ -92,6 +92,18 @@ class QdrantVectorStore:
             points_selector=models.Filter(
                 must=[
                     models.FieldCondition(
+                        key="document_id", match=models.MatchValue(value=chunks[0].document_id)
+                    )
+                ],
+                must_not=[models.HasIdCondition(has_id=[chunk.id for chunk in chunks])],
+            ),
+            wait=True,
+        )
+        self.client.delete(
+            collection_name=self.collection,
+            points_selector=models.Filter(
+                must=[
+                    models.FieldCondition(
                         key="source", match=models.MatchValue(value=chunks[0].source)
                     )
                 ],
