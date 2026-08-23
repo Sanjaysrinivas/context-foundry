@@ -49,7 +49,15 @@ class FakeStore:
         document_ids: list[str] | None = None,
     ) -> list[SearchResult]:
         document_id = self.document.document_id if self.document else ""
-        return [SearchResult("notes.txt", 1, "Evidence stays local.", 0.92, document_id)]
+        return [
+            SearchResult(
+                "notes.txt",
+                1,
+                "**Evidence stays local.**\n\n<script>alert('proof')</script>",
+                0.92,
+                document_id,
+            )
+        ]
 
     def list_documents(self) -> list[DocumentInfo]:
         return [self.document] if self.document else []
@@ -86,6 +94,8 @@ def test_web_api_flow() -> None:
         assert index.status_code == 200
         assert index.headers["x-frame-options"] == "DENY"
         assert "answer.innerHTML = data.answer_html" in index.text
+        assert "text.innerHTML = item.text_html" in index.text
+        assert "text.textContent = item.text" not in index.text
         assert client.get("/health").json()["chat_provider"] == "ollama"
 
         upload = client.post(
@@ -111,6 +121,10 @@ def test_web_api_flow() -> None:
         assert query.status_code == 200
         response = query.json()
         assert response["citations"][0]["score"] == 0.92
+        assert response["citations"][0]["text"].startswith("**Evidence stays local.**")
+        assert "<strong>Evidence stays local.</strong>" in response["citations"][0]["text_html"]
+        assert "<script>" not in response["citations"][0]["text_html"]
+        assert "&lt;script&gt;" in response["citations"][0]["text_html"]
         assert "<strong>The evidence stays local</strong>" in response["answer_html"]
         assert "<table>" in response["answer_html"]
         assert "<script>" not in response["answer_html"]
@@ -119,6 +133,7 @@ def test_web_api_flow() -> None:
         retrieval = client.post("/api/retrieve", json={"question": "Evidence?"})
         assert retrieval.status_code == 200
         assert retrieval.json()[0]["document_id"] == uploaded["document_id"]
+        assert "<strong>Evidence stays local.</strong>" in retrieval.json()[0]["text_html"]
 
         assert client.delete(f"/api/documents/{uploaded['document_id']}").status_code == 200
         assert client.delete(f"/api/documents/{uploaded['document_id']}").status_code == 404
