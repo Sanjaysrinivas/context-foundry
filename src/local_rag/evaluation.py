@@ -164,6 +164,13 @@ def load_cases(path: Path) -> list[EvaluationCase]:
 async def run_evaluation(
     cases: list[EvaluationCase], base_url: str, timeout: float
 ) -> EvaluationMetrics:
+    responses, latencies = await query_cases(cases, base_url, timeout)
+    return calculate_metrics(cases, responses, latencies)
+
+
+async def query_cases(
+    cases: list[EvaluationCase], base_url: str, timeout: float
+) -> tuple[list[dict[str, Any]], list[float]]:
     responses: list[dict[str, Any]] = []
     latencies: list[float] = []
     async with httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=timeout) as client:
@@ -176,7 +183,7 @@ async def run_evaluation(
             response.raise_for_status()
             latencies.append(time.perf_counter() - started)
             responses.append(cast(dict[str, Any], response.json()))
-    return calculate_metrics(cases, responses, latencies)
+    return responses, latencies
 
 
 def calculate_metrics(

@@ -3,13 +3,23 @@ from pathlib import Path
 import pytest
 
 from local_rag.domain import Chunk
-from local_rag.store import QdrantVectorStore, _tokens
+from local_rag.store import QdrantVectorStore, _reciprocal_rank_fusion, lexical_tokens
 
 
 def test_lexical_tokens_match_simple_plural_variants() -> None:
-    assert _tokens("stable evidence anchors and categories") == _tokens(
+    assert lexical_tokens("stable evidence anchors and categories") == lexical_tokens(
         "stable evidence anchor and category"
     )
+
+
+def test_reciprocal_rank_fusion_rewards_results_found_by_both_retrievers() -> None:
+    ranked = _reciprocal_rank_fusion(
+        ["dense-only", "shared"],
+        ["shared", "lexical-only"],
+    )
+
+    assert ranked[0][0] == "shared"
+    assert 0 < ranked[0][1] <= 1
 
 
 @pytest.mark.integration

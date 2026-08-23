@@ -16,9 +16,9 @@ This repository exposes the mechanics that RAG frameworks often hide:
 1. extract text from PDF, Markdown, or plain text;
 2. preserve headings and split it into deterministic overlapping chunks;
 3. create embeddings through a replaceable provider;
-4. fuse cosine similarity with keyword coverage and optional document filters;
+4. rank with cosine similarity and BM25, then fuse both rankings with RRF;
 5. assemble retrieved evidence into a guarded prompt;
-6. generate an answer and return the evidence with scores.
+6. validate a structured answer schema and render deterministic citations.
 
 Chat and embedding providers are selected independently. Ollama is the zero-cost default; any OpenAI-compatible local endpoint can replace either side without changing the pipeline.
 
@@ -44,11 +44,15 @@ flowchart LR
 | Chat | Ollama `llama3.2:3b` | a compact local model suited to retrieval and summarization |
 | Embeddings | Ollama `embeddinggemma` | small multilingual local embedding model with batch support |
 | Vector database | Qdrant local mode | persistent vector search with no server; same client supports a later remote Qdrant |
+| Retrieval | Qdrant cosine + `rank-bm25` + RRF | dense and lexical ranks combine without mixing incompatible raw scores |
 | Documents | PyMuPDF4LLM + RapidOCR + LangChain text splitters | layout-aware extraction, local OCR, and section-preserving chunks |
 | Model transport | HTTPX | direct documented APIs and no orchestration-framework lock-in |
+| Evaluation | deterministic gates + optional Ragas | reproducible release checks plus local LLM-judge diagnostics |
 | Quality | Ruff, mypy, pytest, nox, pre-commit | identical checks locally and in GitHub Actions |
 
-LangChain orchestration and LlamaIndex are intentionally absent. The project uses only LangChain's standalone text-splitter package; the current RAG loop is smaller than a framework abstraction.
+There is no agent or orchestration graph. The project uses focused components where they remove code:
+LangChain's standalone splitter, `rank-bm25`, Ollama's native JSON-schema output, and optional Ragas
+evaluation. FastAPI still owns the small, visible RAG loop.
 
 ## Quickstart
 
@@ -157,12 +161,13 @@ To swap embeddings instead, change `RAG_EMBEDDING_PROVIDER` and `RAG_EMBEDDING_M
 | `RAG_OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API root |
 | `RAG_CHAT_MODEL` | `llama3.2:3b` | generation model |
 | `RAG_EMBEDDING_MODEL` | `embeddinggemma` | embedding model |
+| `RAG_EVAL_MODEL` | `qwen3:8b` | optional local Ragas judge; should reliably follow tool schemas |
 | `RAG_DATA_DIR` | `data/qdrant` | persistent vector-store path |
 | `RAG_CHUNK_SIZE` | `900` | characters per chunk |
 | `RAG_CHUNK_OVERLAP` | `150` | repeated characters between chunks |
 | `RAG_EMBEDDING_BATCH_SIZE` | `32` | chunks embedded per provider request |
 | `RAG_TOP_K` | `4` | passages retained per retrieval query or decomposed question part |
-| `RAG_SCORE_THRESHOLD` | `0.15` | minimum dense score before lexical fallback |
+| `RAG_SCORE_THRESHOLD` | `0.15` | minimum score for the dense retrieval leg; BM25 ranks independently |
 | `RAG_MAX_UPLOAD_MB` | `10` | upload boundary |
 | `RAG_REQUEST_TIMEOUT` | `120` | model request timeout in seconds |
 
@@ -175,6 +180,7 @@ src/local_rag/
 ├── documents.py    # PDF/text loading and chunking
 ├── evaluation.py   # golden-dataset runner and deterministic metrics
 ├── evaluation_data.py # silver generation, review, and gold release CLI
+├── ragas_evaluation.py # optional local LLM-judge diagnostics
 ├── providers.py    # chat/embedding protocols and adapters
 ├── service.py      # ingestion and question-answering pipeline
 ├── store.py        # vector-store protocol and local Qdrant
@@ -223,13 +229,25 @@ Pulumi, AWS, hosted model APIs, authentication, background workers, neural reran
 
 ## Evaluation and limitations
 
-The baseline uses layout-aware PyMuPDF4LLM extraction, automatic local RapidOCR fallback for scanned pages, PDF presentation-markup cleanup, Markdown-aware recursive chunking with overlap across heading boundaries, and lightweight dense/keyword score fusion. Clear multi-part questions are decomposed into at most three retrieval queries. Each part is answered independently from its own top passages, then the answers and a deduplicated citation ledger are combined; this keeps neighboring lists and schemas from bleeding into one another. A supported draft with missing, invalid, or unscoped citations receives one repair attempt before that part is marked as insufficiently evidenced. Re-upload a document after changing extraction or chunking settings; same-document reindexing removes its stale chunks first. It does not use a neural reranker and does not support concurrent ingestion from multiple processes. These limits are documented so improvements can be driven by evidence.
+The baseline uses layout-aware PyMuPDF4LLM extraction, automatic local RapidOCR fallback for scanned pages, PDF presentation-markup cleanup, and Markdown-aware recursive chunking with overlap across heading boundaries. Retrieval ranks Qdrant cosine results and BM25Plus results independently, then combines them with reciprocal-rank fusion; this avoids fixed-weight mixing of bounded cosine scores and unbounded BM25 scores. Clear multi-part questions are decomposed into at most three retrieval queries. The proof ledger retains the complete top-k result set, while a general query-term coverage selector keeps redundant passages from distracting the generation model. Ollama or an OpenAI-compatible endpoint must return a Pydantic JSON schema containing supported claims, citation IDs, output style, and unsupported parts; the application validates it and renders citation markers deterministically. Exhaustive questions over numbered evidence also enforce a matching minimum claim count. There are no document- or topic-specific answer branches. Re-upload after changing extraction or chunking settings; same-document reindexing removes stale chunks first. The project does not use a neural reranker and does not support concurrent ingestion from multiple processes.
 
 There is no generated “golden truth” for every chunk. Ingestion now records the raw source SHA-256 and carries it through pages, chunks, document responses, and citations. A separate, versioned JSONL dataset anchors expected evidence to source hashes, pages, stable text, optional coordinates, and evidence groups. Only `approved_gold` cases enter release metrics; future automatically generated cases remain synthetic silver until reviewed.
 
 The deterministic evaluator reports Hit@k, MRR, evidence recall, required-evidence coverage, nDCG, citation precision, fact coverage, evidence support, abstention errors, and p50/p95 latency. With the matching corpus indexed and the app running, execute `uv run local-rag-eval path\to\cases.jsonl`. See [docs/evaluation.md](docs/evaluation.md) for the schema, review states, gates, and versioning protocol.
 
-Use `uv run local-rag-eval-data generate source.pdf evaluation/private/candidates.jsonl` to create optional synthetic silver candidates after ingestion. The same CLI validates cases, hides proposed answers during source-first review, records approvals or rejections, and freezes only `approved_gold` records into a release dataset. It adds no cloud service or evaluation framework.
+Use `uv run local-rag-eval-data generate source.pdf evaluation/private/candidates.jsonl` to create optional synthetic silver candidates after ingestion. The same CLI validates cases, hides proposed answers during source-first review, records approvals or rejections, and freezes only `approved_gold` records into a release dataset.
+
+Ragas is an optional second evaluator, not the source of gold labels or a release gate. It runs
+faithfulness, context precision, context recall, and factual correctness through an Ollama model:
+
+```powershell
+ollama pull qwen3:8b
+uv run --extra evaluation local-rag-eval-ragas evaluation/private/gold-v1.jsonl --judge-model qwen3:8b
+```
+
+The default judge is `RAG_EVAL_MODEL` or `qwen3:8b`. The 3B answering model is not recommended as a
+judge because it can fail Ragas' nested tool schemas. No document content leaves the machine when
+the judge base URL remains the local Ollama endpoint.
 
 ## License
 

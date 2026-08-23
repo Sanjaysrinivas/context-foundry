@@ -22,11 +22,17 @@ class FakeGenerator:
         self.calls = 0
 
     async def complete(
-        self, system_prompt: str, user_prompt: str, *, json_mode: bool = False
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        json_mode: bool = False,
+        json_schema: dict[str, object] | None = None,
     ) -> str:
         assert "required fact" in system_prompt
         assert "Evidence passage:" in user_prompt
         assert json_mode
+        assert json_schema is None
         response = self.responses[self.calls]
         self.calls += 1
         return json.dumps(response)

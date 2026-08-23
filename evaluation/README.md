@@ -22,3 +22,14 @@ uv run local-rag-eval path\to\private-cases.jsonl
 ```
 
 The command reports Hit@k, MRR, evidence recall and group coverage, nDCG, citation precision, fact coverage, evidence support, abstention errors, and p50/p95 latency. It exits non-zero when a documented quality gate is missed.
+
+Optional local Ragas diagnostics run only against the same approved dataset:
+
+```powershell
+ollama pull qwen3:8b
+uv run --extra evaluation local-rag-eval-ragas path\to\private-cases.jsonl --judge-model qwen3:8b
+```
+
+Ragas reports faithfulness, context precision, context recall, and factual correctness. Its
+LLM-judge scores supplement the deterministic release gates and never turn generated cases into
+gold.
