@@ -3,17 +3,29 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import uuid
 from pathlib import Path
 from typing import Any, cast
 
 import pymupdf
 import pymupdf4llm  # type: ignore[import-untyped]
-from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
+from langchain_text_splitters import Language, RecursiveCharacterTextSplitter
 
 from local_rag.domain import Chunk, Page, RAGError
 
 SUPPORTED_EXTENSIONS = {".md", ".pdf", ".txt"}
+MARK_TAG_RE = re.compile(r"</?mark>", re.IGNORECASE)
+CODE_PLURAL_RE = re.compile(r"`([^`]+)`\s+s\b")
+PUNCTUATION_SPACE_RE = re.compile(r"\s+([.,;:])")
+SLASH_SPACE_RE = re.compile(r"(?<=\S)/\s+")
+
+
+def clean_extracted_markdown(text: str) -> str:
+    text = MARK_TAG_RE.sub("", text)
+    text = CODE_PLURAL_RE.sub(lambda match: f"`{match.group(1)}s`", text)
+    text = PUNCTUATION_SPACE_RE.sub(r"\1", text)
+    return SLASH_SPACE_RE.sub("/", text)
 
 
 def load_document(filename: str, content: bytes) -> list[Page]:
@@ -36,7 +48,7 @@ def load_document(filename: str, content: bytes) -> list[Page]:
                 Page(
                     filename,
                     int(page["metadata"]["page_number"]),
-                    str(page["text"]),
+                    clean_extracted_markdown(str(page["text"])),
                     source_sha256,
                 )
                 for page in extracted
@@ -62,19 +74,14 @@ def chunk_pages(pages: list[Page], chunk_size: int, overlap: int) -> list[Chunk]
         document_id = document_hash.hexdigest()
 
     chunks: list[Chunk] = []
-    markdown_splitter = MarkdownHeaderTextSplitter(
-        [("#", "title"), ("##", "section"), ("###", "subsection")],
-        strip_headers=False,
-    )
-    text_splitter = RecursiveCharacterTextSplitter(
+    text_splitter = RecursiveCharacterTextSplitter.from_language(
+        Language.MARKDOWN,
         chunk_size=chunk_size,
         chunk_overlap=overlap,
     )
     for page in pages:
-        sections = markdown_splitter.split_text(page.text)
-        excerpts = text_splitter.split_documents(sections)
-        for index, document in enumerate(excerpts):
-            excerpt = document.page_content.strip()
+        for index, text in enumerate(text_splitter.split_text(page.text)):
+            excerpt = text.strip()
             stable_id = str(
                 uuid.uuid5(uuid.NAMESPACE_URL, f"{document_id}:{page.number}:{index}:{excerpt}")
             )
