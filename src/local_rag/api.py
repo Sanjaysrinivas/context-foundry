@@ -14,7 +14,7 @@ from markdown_it import MarkdownIt
 from pydantic import BaseModel, Field
 
 from local_rag.config import Settings
-from local_rag.domain import ProviderError, RAGError
+from local_rag.domain import ProviderError, RAGError, SearchResult
 from local_rag.factory import build_service
 from local_rag.service import RAGService
 
@@ -32,6 +32,7 @@ class CitationResponse(BaseModel):
     source: str
     page: int
     text: str
+    text_html: str
     score: float
     source_sha256: str
 
@@ -48,6 +49,18 @@ class DocumentResponse(BaseModel):
     chunks: int
     pages: int
     source_sha256: str
+
+
+def _citation_response(item: SearchResult) -> CitationResponse:
+    return CitationResponse(
+        document_id=item.document_id,
+        source=item.source,
+        page=item.page,
+        text=item.text,
+        text_html=MARKDOWN.render(item.text),
+        score=item.score,
+        source_sha256=item.source_sha256,
+    )
 
 
 def create_app(settings: Settings | None = None, service: RAGService | None = None) -> FastAPI:
@@ -140,33 +153,13 @@ def create_app(settings: Settings | None = None, service: RAGService | None = No
         return QueryResponse(
             answer=result.text,
             answer_html=MARKDOWN.render(result.text),
-            citations=[
-                CitationResponse(
-                    document_id=item.document_id,
-                    source=item.source,
-                    page=item.page,
-                    text=item.text,
-                    score=item.score,
-                    source_sha256=item.source_sha256,
-                )
-                for item in result.citations
-            ],
+            citations=[_citation_response(item) for item in result.citations],
         )
 
     @app.post("/api/retrieve", response_model=list[CitationResponse])
     async def retrieve(request: QueryRequest) -> list[CitationResponse]:
         matches = await active_service().retrieve(request.question, request.document_ids or None)
-        return [
-            CitationResponse(
-                document_id=item.document_id,
-                source=item.source,
-                page=item.page,
-                text=item.text,
-                score=item.score,
-                source_sha256=item.source_sha256,
-            )
-            for item in matches
-        ]
+        return [_citation_response(item) for item in matches]
 
     @app.delete("/api/documents/{document_id}")
     async def delete_document(document_id: str) -> dict[str, str]:

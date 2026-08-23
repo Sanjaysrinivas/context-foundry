@@ -526,7 +526,29 @@
       overflow-wrap: anywhere;
     }
 
-    .evidence-text { margin: 0; color: #3e4959; white-space: pre-wrap; }
+    .evidence-text { margin: 0; color: #3e4959; }
+    .evidence-text > :first-child { margin-top: 0; }
+    .evidence-text > :last-child { margin-bottom: 0; }
+    .evidence-text p, .evidence-text ul, .evidence-text ol,
+    .evidence-text pre, .evidence-text blockquote, .evidence-text table {
+      margin: 0 0 .75rem;
+    }
+    .evidence-text ul, .evidence-text ol { padding-left: 1.3rem; }
+    .evidence-text code { font: .88em/1.4 var(--utility); overflow-wrap: anywhere; }
+    .evidence-text pre { overflow-x: auto; padding: .75rem; background: var(--paper); }
+    .evidence-text table {
+      display: block;
+      width: 100%;
+      overflow-x: auto;
+      border-collapse: collapse;
+    }
+    .evidence-text th, .evidence-text td {
+      padding: .4rem .55rem;
+      border: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+    .evidence-text th { background: var(--paper); font-family: var(--utility); }
 
     .evidence-data {
       align-self: start;
@@ -863,9 +885,9 @@
           const source = document.createElement('div');
           source.className = 'evidence-source';
           source.textContent = item.source;
-          const text = document.createElement('p');
+          const text = document.createElement('div');
           text.className = 'evidence-text';
-          text.textContent = item.text;
+          text.innerHTML = item.text_html;
           passage.append(source, text);
 
           const evidenceData = document.createElement('div');

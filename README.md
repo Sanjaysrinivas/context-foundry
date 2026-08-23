@@ -114,6 +114,7 @@ The response keeps generation and retrieval separately inspectable:
       "source": "notes.pdf",
       "page": 4,
       "text": "Retrieved passage ...",
+      "text_html": "<p>Retrieved passage ...</p>",
       "score": 0.82,
       "source_sha256": "0123456789abcdef..."
     }
@@ -121,8 +122,9 @@ The response keeps generation and retrieval separately inspectable:
 }
 ```
 
-`answer` remains the plain Markdown response for API clients and evaluation. `answer_html` is the
-server-rendered browser representation; raw HTML from model output is disabled before rendering.
+`answer` and citation `text` remain plain Markdown for API clients and evaluation. `answer_html`
+and citation `text_html` are their server-rendered browser representations; raw HTML from model
+output and retrieved passages is disabled before rendering.
 
 Use `POST /api/retrieve` with the same request body to inspect retrieval without generation. Delete one document with `DELETE /api/documents/{document_id}`, or clear the collection with `DELETE /api/documents`. A full clear and re-index is required after changing embedding models because vectors from different embedding spaces cannot be mixed.
 
