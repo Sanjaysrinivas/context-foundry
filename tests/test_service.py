@@ -59,7 +59,7 @@ class FakeStore:
         threshold: float,
         document_ids: list[str] | None = None,
     ) -> list[SearchResult]:
-        assert vector and limit == 4 and threshold == 0.25
+        assert vector and limit in {4, 8} and threshold == 0.25
         assert query
         self.queries.append(query)
         self.limits.append(limit)
@@ -126,7 +126,7 @@ async def test_answer_renders_schema_claims_and_citations() -> None:
             GroundedResponse(
                 style="bullets",
                 claims=[
-                    claim("Documents stay local"),
+                    claim("- Documents stay local"),
                     claim("Documents remain private"),
                 ],
             )
@@ -255,6 +255,31 @@ async def test_answer_does_not_overfeed_redundant_retrieved_context() -> None:
     assert result.citations == [complete, related]
 
 
+async def test_exhaustive_answer_prefers_deep_direct_definition() -> None:
+    generic = [
+        SearchResult(
+            "report.pdf", page, f"Stable evidence anchor field table {page}.", 1 - page / 100
+        )
+        for page in range(1, 5)
+    ]
+    definition = SearchResult(
+        "report.pdf",
+        9,
+        "Evidence anchors should use source hash + source page + coordinates + fingerprint.",
+        0.90,
+    )
+    chat = FakeChat()
+
+    result = await service(FakeStore([*generic, definition]), chat).ask(
+        "Specify every field required for a stable evidence anchor"
+    )
+
+    assert definition.text in chat.context
+    assert generic[0].text not in chat.context
+    assert result.citations[0] == definition
+    assert chat.citation_counts == [1]
+
+
 async def test_answer_skips_chat_without_evidence() -> None:
     chat = FakeChat()
 
@@ -296,7 +321,7 @@ async def test_retrieve_and_answer_cover_compound_question_parts() -> None:
     )
 
     assert store.queries == queries
-    assert store.limits == [4, 4, 4]
+    assert store.limits == [8, 8, 4]
     assert [result.text for result in answer.citations] == [
         "evidence support",
         "source hash and page coordinates",
