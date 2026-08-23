@@ -30,6 +30,7 @@ async def test_ollama_providers_parse_responses(monkeypatch: pytest.MonkeyPatch)
             schema = payload["format"]
             assert isinstance(schema, dict)
             assert "$defs" not in schema
+            assert "maxLength" not in repr(schema)
             assert schema["required"] == ["style", "claims", "unsupported"]
             return {
                 "message": {

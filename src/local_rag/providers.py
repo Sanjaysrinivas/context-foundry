@@ -24,8 +24,8 @@ support that claim in its citations array. Never put citation markers such as [1
 Use style "steps" for an ordered process, "bullets" for a set, and "paragraphs" otherwise.
 Put any unsupported part of the question in unsupported. Do not add suggestions or tangents."""
 
-# Ollama's grammar parser rejects Pydantic's $defs references. Pydantic still performs the full
-# validation after generation; this inlined subset only constrains provider output.
+# Ollama's grammar parser rejects Pydantic's $defs references and maxLength. Pydantic still
+# performs the full validation after generation; this compatible subset constrains provider output.
 GROUNDED_RESPONSE_SCHEMA: dict[str, object] = {
     "type": "object",
     "additionalProperties": False,
@@ -36,7 +36,7 @@ GROUNDED_RESPONSE_SCHEMA: dict[str, object] = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "text": {"type": "string", "minLength": 1, "maxLength": 2000},
+                    "text": {"type": "string", "minLength": 1},
                     "citations": {
                         "type": "array",
                         "minItems": 1,
