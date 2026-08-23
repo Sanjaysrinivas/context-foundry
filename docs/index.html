@@ -133,7 +133,7 @@
 
     <section id="flows">
       <div class="wrap">
-        <h2>Two explicit pipelines</h2>
+        <h2>Three explicit pipelines</h2>
         <div class="stack">
           <article class="card wide">
             <h3>Ingestion</h3>
@@ -156,6 +156,16 @@
               <li>Return explicit source lists extractively; validate synthesized claims against a JSON schema and source terms.</li>
               <li>Fall back to the most relevant cited paragraph when local-model drafts remain ungrounded.</li>
               <li>Render Markdown and citation markers deterministically, then return the retrieved proof.</li>
+            </ol>
+          </article>
+          <article class="card wide">
+            <h3>Evaluation data</h3>
+            <ol>
+              <li>Generate optional direct-fact synthetic silver candidates from stable source evidence.</li>
+              <li>Validate source support, answer support, schema integrity, and duplicate questions.</li>
+              <li>Review the source first, then approve, edit, or reject each candidate.</li>
+              <li>Freeze only <code>approved_gold</code> cases into a versioned release dataset.</li>
+              <li>Run deterministic retrieval, grounding, citation, and abstention gates; use Ragas only as a secondary diagnostic.</li>
             </ol>
           </article>
         </div>
@@ -207,7 +217,7 @@ class ChatProvider(Protocol):
         <h2>Data and retrieval model</h2>
         <div class="grid">
           <article class="card wide"><h3>Vector</h3><p>The embedding is stored with cosine distance. Collection dimensionality is discovered from the first embedding and checked thereafter.</p></article>
-          <article class="card wide"><h3>Payload</h3><p><code>document_id</code>, <code>source</code>, <code>page</code>, <code>chunk_index</code>, and <code>text</code> support citations, document filtering, deletion, and replacement on re-ingestion.</p></article>
+          <article class="card wide"><h3>Payload</h3><p><code>document_id</code>, <code>source_sha256</code>, <code>source</code>, <code>page</code>, <code>chunk_index</code>, and the actual chunk <code>text</code> support stable evidence anchors, citations, hybrid retrieval, document filtering, deletion, and replacement on re-ingestion.</p></article>
           <article class="card wide"><h3>Hybrid rank</h3><p>BM25Plus ranks stored chunk text while Qdrant ranks embeddings. Reciprocal-rank fusion combines positions, not incompatible raw score magnitudes.</p></article>
           <article class="card wide"><h3>Chunking</h3><p>PyMuPDF4LLM preserves PDF layout as Markdown; RapidOCR handles scanned pages locally; LangChain's standalone splitter preserves headings and natural text boundaries while enforcing configurable character limits.</p></article>
           <article class="card wide"><h3>Consistency rule</h3><p>Changing the embedding model or provider requires rebuilding the collection. Mixing vector spaces produces invalid similarity results.</p></article>
