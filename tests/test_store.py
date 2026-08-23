@@ -3,7 +3,13 @@ from pathlib import Path
 import pytest
 
 from local_rag.domain import Chunk
-from local_rag.store import QdrantVectorStore
+from local_rag.store import QdrantVectorStore, _tokens
+
+
+def test_lexical_tokens_match_simple_plural_variants() -> None:
+    assert _tokens("stable evidence anchors and categories") == _tokens(
+        "stable evidence anchor and category"
+    )
 
 
 @pytest.mark.integration

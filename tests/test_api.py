@@ -19,8 +19,8 @@ class FakeChat:
         assert question and "notes.txt" in context
         return (
             "**The evidence stays local** [1].\n\n"
-            "| Location | Access |\n|---|---|\n| Local | Private |\n\n"
-            "<script>alert('unsafe')</script>"
+            "| Location | Access |\n|---|---|\n| Local | Private [1] |\n\n"
+            "<script>alert('unsafe')</script> [1]"
         )
 
 
