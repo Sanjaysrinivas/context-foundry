@@ -15,12 +15,15 @@ contradiction or insufficient evidence is at least 0.90, and `review` otherwise.
 experimental. The separate confidence field never drives this policy. The observer preserves
 the original answer and ledger for comparison; abstentions with no generated claims need no audit.
 
-The browser shows each distribution, the suggested action, and expandable provenance. API audit
-records include claim and citation IDs, hashes of the submitted excerpts, requested and returned
-models, policy/prompt versions, threshold, latency, and token usage. Shared request IDs identify
-batched claims: count each request's usage once. A five-second total budget applies per question
-part, with at most three parts. HTTP failures, invalid responses, and timeouts yield `unavailable`
-records without blocking the original answer or exposing raw provider error bodies.
+The browser announces the active Jev mode before submission. **Answer support check** then gives
+each claim a plain-language status such as **Likely supported**, **Needs review**, **Citation
+repaired**, or **Check unavailable**. Probability bars, repair details, the privacy boundary, and
+the collapsed technical record remain available for closer inspection. API audit records include
+claim and citation IDs, hashes of the submitted excerpts, requested and returned models,
+policy/prompt versions, threshold, latency, and token usage. Shared request IDs identify batched
+claims: count each request's usage once. A five-second total budget applies per question part, with
+at most three parts. HTTP failures, invalid responses, and timeouts yield `unavailable` records
+without blocking the original answer or exposing raw provider error bodies.
 
 ### Opt-in citation repair
 
@@ -55,6 +58,11 @@ After adding citation repair, `uv run --frozen nox` passed lint, strict type che
 fresh qualifying check, retention of the original assessment and attempts, weak/outage candidate
 fallback, no changes to supported or contradicted claims, global IDs in multipart answers,
 isolation from other question parts, and the shared initial/repair time budget.
+
+After the workspace and PDF reader overhaul, `uv run --frozen nox` passed lint, strict type
+checking, and all **100 tests**, with **86.30%** coverage. The added coverage checks original-file
+lifecycle and PDF page rendering as well as compound-question parsing and self-contained claim
+validation.
 
 The first live eight-case replay completed all requests:
 
@@ -155,6 +163,16 @@ passed for off mode, empty audits, unavailable checks, retained citations, obser
 literal display of HTML-like claim text. Screenshots are retained locally in
 `output/playwright/jev-repair-desktop.png` and `output/playwright/jev-repair-mobile.png`.
 
+## Current workspace and PDF check
+
+The overhauled workspace was also exercised through the real browser flow with the public,
+48-page NIST AI Risk Management Framework 1.0 PDF. A question about GOVERN retrieved and cited
+page 27. Jev `jev-1.13.0` returned support 1.00, contradiction 0, and insufficient evidence 0 in
+0.37 seconds. The source column showed `1 cited · 4 found`, and **View PDF page 27** loaded the
+retained original directly on that page. The browser console contained no errors or warnings.
+
+![Current workspace with a live TypeSafe check and cited NIST PDF page](images/context-foundry-workspace.png)
+
 The following UI previews use hand-authored synthetic claims and distributions, not live model
 results. They illustrate observation before repair and a verified replacement:
 
@@ -165,16 +183,16 @@ results. They illustrate observation before repair and a verified replacement:
 ## Reproduce
 
 Set `TYPESAFE_API_KEY` in the ignored `.env`; use `RAG_JEV_MODE=observe` for unchanged answers
-with claim checks, or `RAG_JEV_MODE=repair` for verified citation replacement. The local
-experimental `.env` is currently set to repair; `.env.example` retains the off default.
-Restart the app with:
+with claim checks, or `RAG_JEV_MODE=repair` for verified citation replacement. `.env.example`
+retains the off default. Restart the app with:
 
 ```powershell
 uv run --frozen --env-file .env local-rag
 ```
 
-Upload synthetic Markdown or text, ask a factual question, and inspect **Claim checks** below
-the answer. This mode sends claims and cited text to the hosted TypeSafe API.
+Upload a public or synthetic document, ask a factual question, and inspect **Answer support
+check** below the answer. This mode sends claims and cited text to the hosted TypeSafe API; the
+retained original and its filename remain local.
 
 Replay the public synthetic fixtures independently of the app:
 

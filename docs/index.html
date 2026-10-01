@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Architecture for Context Foundry, an Ollama-first retrieval-augmented generation project.">
+  <meta name="description" content="Architecture and browser experience for Context Foundry, a private-by-default retrieval-augmented generation workspace.">
   <title>Context Foundry — Architecture</title>
   <style>
     :root {
@@ -52,6 +52,7 @@
     .card p { color: var(--muted); }
     .wide { grid-column: span 6; }
     .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: .65rem; align-items: stretch; }
+    .system-flow { grid-template-columns: 1fr auto 1.2fr auto 1fr auto 1fr; }
     .node { min-height: 110px; display: grid; place-content: center; padding: 1rem; text-align: center; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
     .node strong { display: block; color: var(--cyan); }
     .node small { color: var(--muted); }
@@ -67,11 +68,12 @@
     pre { margin: 0; color: #d9e2f3; }
     .decision { display: grid; grid-template-columns: 8rem 1fr; gap: 1rem; padding: 1rem 0; border-top: 1px solid var(--line); }
     .decision b { color: var(--gold); }
+    .workspace-shot { display: block; width: 100%; margin: 1.5rem 0; border: 1px solid var(--line); border-radius: 18px; }
     footer { padding: 3rem 0 5rem; color: var(--muted); }
     @media (max-width: 800px) {
       header { padding-top: 3rem; }
       .card, .wide { grid-column: 1 / -1; }
-      .flow { grid-template-columns: 1fr; }
+      .flow, .system-flow { grid-template-columns: 1fr; }
       .arrow { transform: rotate(90deg); }
       .stack { grid-template-columns: 1fr; }
       .decision { grid-template-columns: 1fr; gap: .2rem; }
@@ -84,19 +86,21 @@
   <header class="wrap">
     <div class="eyebrow">Architecture · v1</div>
     <h1>Context Foundry</h1>
-    <p class="lead">A zero-cost, Ollama-first RAG system that makes retrieval visible, cites its evidence, and keeps the chat model and embedding model independently replaceable.</p>
+    <p class="lead">A private-by-default, Ollama-first RAG workspace that keeps retrieval visible, opens cited PDF pages, and can optionally audit claim support with TypeSafe Jev.</p>
     <div class="pills" aria-label="Project qualities">
       <span class="pill">100% local by default</span>
       <span class="pill">Provider-swappable</span>
       <span class="pill">Persistent vectors</span>
       <span class="pill">Source citations</span>
+      <span class="pill">Original PDF pages</span>
+      <span class="pill">Optional Jev audits</span>
       <span class="pill">No framework lock-in</span>
     </div>
   </header>
 
   <nav aria-label="Architecture sections">
     <div class="wrap">
-      <a href="#goals">Goals</a><a href="#system">System</a><a href="#flows">Flows</a>
+      <a href="#goals">Goals</a><a href="#system">System</a><a href="#workspace">Workspace</a><a href="#flows">Flows</a>
       <a href="#stack">Stack</a><a href="#contracts">Contracts</a><a href="#data">Data</a>
       <a href="#operations">Operations</a><a href="#delivery">Delivery</a><a href="#decisions">Decisions</a>
     </div>
@@ -107,7 +111,7 @@
       <div class="wrap">
         <h2>Goals and boundaries</h2>
         <div class="grid">
-          <article class="card"><h3>Local first</h3><p>Documents, Qdrant storage, embeddings, and responses stay on the developer machine when Ollama is selected.</p></article>
+          <article class="card"><h3>Local first</h3><p>Documents, Qdrant storage, embeddings, and responses stay on the developer machine with the default settings. Hosted providers are explicit opt-ins.</p></article>
           <article class="card"><h3>Understandable</h3><p>The RAG loop is plain Python: load, chunk, embed, retrieve, assemble context, generate. No hidden agent graph.</p></article>
           <article class="card"><h3>Replaceable edges</h3><p>Small protocols isolate chat and embeddings. Each can use a different provider without changing ingestion or retrieval.</p></article>
           <article class="card"><h3>Portfolio ready</h3><p>A web UI, OpenAPI endpoints, architecture notes, tests, CI, releases, and observable source scores demonstrate the whole system.</p></article>
@@ -120,14 +124,30 @@
     <section id="system">
       <div class="wrap">
         <h2>System context</h2>
-        <div class="flow" aria-label="System context diagram">
+        <div class="flow system-flow" aria-label="System context diagram">
           <div class="node"><strong>User</strong><small>browser or API client</small></div>
           <div class="arrow" aria-hidden="true">→</div>
-          <div class="node"><strong>FastAPI app</strong><small>document lifecycle, retrieve, query, health, static UI</small></div>
+          <div class="node"><strong>FastAPI app</strong><small>workspace, source lifecycle, retrieve, query, health</small></div>
           <div class="arrow" aria-hidden="true">↔</div>
-          <div class="node"><strong>Local services</strong><small>Ollama HTTP API + embedded Qdrant</small></div>
+          <div class="node"><strong>Local data and models</strong><small>Ollama, embedded Qdrant, retained source files</small></div>
+          <div class="arrow" aria-hidden="true">⇢</div>
+          <div class="node"><strong>Optional hosted checks</strong><small>TypeSafe Jev receives claims and selected excerpts only when enabled</small></div>
         </div>
-        <p class="lead">The FastAPI process owns orchestration. Ollama owns model inference. Qdrant runs in-process and persists beneath <code>data/qdrant</code>; no database server or Docker container is required.</p>
+        <p class="lead">The FastAPI process owns orchestration and the browser workspace. Ollama owns model inference. Qdrant runs in-process, while vectors and retained originals persist beneath <code>RAG_DATA_DIR</code>; no database server or Docker container is required. The Jev edge is inactive by default.</p>
+      </div>
+    </section>
+
+    <section id="workspace">
+      <div class="wrap">
+        <h2>Browser workspace</h2>
+        <p class="lead">The interface keeps the question, grounded answer, and exact source passage in one reading flow. It exposes system state early and moves implementation detail behind deliberate disclosure.</p>
+        <img class="workspace-shot" src="images/context-foundry-workspace.png" loading="lazy" alt="Context Foundry showing a cited answer, Jev support check, and source passage from the NIST AI Risk Management Framework">
+        <div class="grid">
+          <article class="card wide"><h3>Evidence stays in view</h3><p>The document library controls query scope, numbered citations activate the matching source, and the source header distinguishes cited passages from the complete retrieved set. PDF citations open the retained original on the cited page.</p></article>
+          <article class="card wide"><h3>Reading comes first</h3><p>The question uses an editorial serif face, answer copy has a restrained reading measure, and labels describe outcomes in plain language. Copy and source actions sit beside the content they affect.</p></article>
+          <article class="card wide"><h3>Trust before detail</h3><p>The header shows whether Jev is off, observing, or repairing. Inline claim states and the audit summary communicate the result first; probability bars, repair attempts, privacy disclosure, and the technical record remain available on demand.</p></article>
+          <article class="card wide"><h3>Progress and recovery</h3><p>Staged status text explains long local-model work, an active request can be stopped, and a failed or cancelled question leaves the previous answer intact. The three-column layout collapses into a usable mobile reading order.</p></article>
+        </div>
       </div>
     </section>
 
@@ -143,19 +163,22 @@
               <li>Preserve Markdown headings and split on natural boundaries with overlap.</li>
               <li>Embed chunks in batches with the configured embedding provider.</li>
               <li>Create or validate the Qdrant collection dimension.</li>
-              <li>Replace stale chunks for the same filename and store citation metadata.</li>
+              <li>Retain the original under a content-addressed ID and record the complete page count.</li>
+              <li>Replace stale chunks and source files for the same filename, then store citation metadata.</li>
             </ol>
           </article>
           <article class="card wide">
             <h3>Question answering</h3>
             <ol>
-              <li>Embed the question with the same embedding provider.</li>
+              <li>Split clear compound questions into at most three self-contained retrieval parts.</li>
+              <li>Embed each retrieval question with the same embedding provider.</li>
               <li>Rank Qdrant cosine and BM25 results independently, optionally scoped to selected documents.</li>
               <li>Fuse both ranked lists with reciprocal-rank fusion; the threshold applies only to dense results.</li>
               <li>Select concise supporting evidence, searching deeper for exhaustive requests.</li>
               <li>Return explicit source lists extractively; validate synthesized claims against a JSON schema and source terms.</li>
               <li>Fall back to the most relevant cited paragraph when local-model drafts remain ungrounded.</li>
-              <li>Render Markdown and citation markers deterministically, then return the retrieved proof.</li>
+              <li>Optionally audit cited support with Jev and replace a weak citation only after a qualifying fresh check.</li>
+              <li>Render Markdown and citation markers deterministically, then return the full retrieved proof.</li>
             </ol>
           </article>
           <article class="card wide">
@@ -186,6 +209,7 @@
               <tr><td>Vector database</td><td>Qdrant client local mode</td><td>Persistent vector search with the same client API available for a later server migration.</td><td>Run Qdrant server when concurrent writers or remote access matter.</td></tr>
               <tr><td>Retrieval</td><td>Cosine + BM25Plus + RRF</td><td>Combines semantic and exact-term ranks without mixing incompatible raw score scales.</td><td>Add a cross-encoder only after a frozen dataset proves the gain.</td></tr>
               <tr><td>Document parsing</td><td>PyMuPDF4LLM + RapidOCR</td><td>Extracts layout-aware Markdown and automatically OCRs image-only pages locally.</td><td>Add language models only when non-English scans are required.</td></tr>
+              <tr><td>Claim audit</td><td>Optional TypeSafe Jev</td><td>Checks each generated claim against its cited excerpts and can verify a replacement citation.</td><td>Keep disabled for a fully local path; calibrate thresholds before enforcement.</td></tr>
               <tr><td>Model transport</td><td>HTTPX</td><td>One async HTTP client covers Ollama and OpenAI-compatible endpoints.</td><td>Provider SDK only when it exposes required behavior missing from HTTP.</td></tr>
               <tr><td>Evaluation</td><td>Deterministic gates + optional Ragas</td><td>Human-approved gold drives repeatable release metrics; local judges add semantic diagnostics.</td><td>Use a stronger local judge when hardware permits.</td></tr>
               <tr><td>Quality</td><td>Ruff, mypy, pytest, nox, pre-commit</td><td>Fast local checks mirror CI; configuration lives in <code>pyproject.toml</code>.</td><td>None until project scale justifies more specialized tooling.</td></tr>
@@ -217,7 +241,8 @@ class ChatProvider(Protocol):
         <h2>Data and retrieval model</h2>
         <div class="grid">
           <article class="card wide"><h3>Vector</h3><p>The embedding is stored with cosine distance. Collection dimensionality is discovered from the first embedding and checked thereafter.</p></article>
-          <article class="card wide"><h3>Payload</h3><p><code>document_id</code>, <code>source_sha256</code>, <code>source</code>, <code>page</code>, <code>chunk_index</code>, and the actual chunk <code>text</code> support stable evidence anchors, citations, hybrid retrieval, document filtering, deletion, and replacement on re-ingestion.</p></article>
+          <article class="card wide"><h3>Payload</h3><p><code>document_id</code>, <code>source_sha256</code>, <code>source</code>, <code>page</code>, <code>page_count</code>, <code>chunk_index</code>, and the actual chunk <code>text</code> support stable evidence anchors, citations, hybrid retrieval, document filtering, deletion, and replacement on re-ingestion.</p></article>
+          <article class="card wide"><h3>Original files</h3><p>Uploads are retained beneath <code>RAG_DATA_DIR/sources/&lt;collection-hash&gt;</code> by content-addressed document ID. The UI can download a source or render a PDF page without re-uploading it.</p></article>
           <article class="card wide"><h3>Hybrid rank</h3><p>BM25Plus ranks stored chunk text while Qdrant ranks embeddings. Reciprocal-rank fusion combines positions, not incompatible raw score magnitudes.</p></article>
           <article class="card wide"><h3>Chunking</h3><p>PyMuPDF4LLM preserves PDF layout as Markdown; RapidOCR handles scanned pages locally; LangChain's standalone splitter preserves headings and natural text boundaries while enforcing configurable character limits.</p></article>
           <article class="card wide"><h3>Consistency rule</h3><p>Changing the embedding model or provider requires rebuilding the collection. Mixing vector spaces produces invalid similarity results.</p></article>
@@ -233,13 +258,13 @@ class ChatProvider(Protocol):
             <thead><tr><th>Area</th><th>Design</th></tr></thead>
             <tbody>
               <tr><td>Configuration</td><td>Environment variables with safe local defaults; <code>.env</code> is ignored and <code>.env.example</code> documents every setting.</td></tr>
-              <tr><td>Health</td><td><code>/health</code> reports application readiness and selected providers without exposing keys or document contents.</td></tr>
-              <tr><td>Privacy</td><td>Local Ollama mode sends no document data to a third party. Selecting a remote compatible endpoint is an explicit operator decision.</td></tr>
+              <tr><td>Health</td><td><code>/health</code> reports readiness, provider choices, Jev mode, upload limit, and whether both model endpoints are local without exposing keys or document contents.</td></tr>
+              <tr><td>Privacy</td><td>The default path sends no document data to a third party. A remote model endpoint or Jev mode is an explicit operator decision; Jev receives generated claims and selected excerpt text, never retained originals or filenames.</td></tr>
               <tr><td>Prompt safety</td><td>Retrieved documents are untrusted data. The system prompt tells the model to ignore instructions inside context and answer only from evidence.</td></tr>
-              <tr><td>Input boundary</td><td>Extensions and upload size are validated; filenames are metadata only and never used as filesystem destinations.</td></tr>
+              <tr><td>Input boundary</td><td>Extensions and upload size are validated; filenames are metadata only and never used as filesystem destinations. Original downloads and PDF previews use non-cacheable, same-origin endpoints.</td></tr>
               <tr><td>Failure modes</td><td>Unavailable models, malformed documents, dimension changes, invalid structured output, and empty retrieval return actionable API errors.</td></tr>
-              <tr><td>Quality signals</td><td>The UI reports elapsed work and fused-rank scores; deterministic JSONL metrics gate releases while optional local Ragas judges diagnose semantic quality.</td></tr>
-              <tr><td>Backup</td><td>Stop the app and copy <code>data/qdrant</code>. Source documents remain the canonical rebuild path.</td></tr>
+              <tr><td>Quality signals</td><td>The UI reports cited and retrieved counts, source scores, answer latency, and optional claim-support distributions; deterministic JSONL metrics gate releases while local Ragas judges remain diagnostic.</td></tr>
+              <tr><td>Backup</td><td>Stop the app and copy <code>RAG_DATA_DIR</code>, including its <code>sources</code> subtree. Keep external originals when a rebuild path independent of application storage is required.</td></tr>
             </tbody>
           </table>
         </div>
@@ -271,6 +296,7 @@ class ChatProvider(Protocol):
         <div class="decision"><b>Local Qdrant</b><span>Skip Docker and cloud storage. Move to Qdrant server when multiple processes, remote clients, or concurrent ingestion are required.</span></div>
         <div class="decision"><b>Structured chunks</b><span>Preserve Markdown headings and natural text boundaries, then enforce configurable character limits with overlap.</span></div>
         <div class="decision"><b>Hybrid retrieval</b><span>Fuse cosine and BM25Plus rankings with RRF. Add a local cross-encoder only if the evaluation set proves top-k precision is still insufficient.</span></div>
+        <div class="decision"><b>Hosted checks</b><span>Keep Jev off by default. Observe mode annotates claim support without changing answers; repair mode changes only a citation that passes a fresh support check.</span></div>
         <div class="decision"><b>No cloud IaC</b><span>Pulumi, AWS, and paid hosting conflict with the local zero-cost scope. The provider and vector-store seams preserve a migration path.</span></div>
         <div class="decision"><b>Golden evaluation dataset</b><span>A checked-in schema and deterministic runner score human-verified questions, expected evidence, required facts, abstention, and latency. Ragas is a secondary local diagnostic and never promotes silver cases.</span></div>
       </div>

@@ -5,9 +5,11 @@
 [![Ollama](https://img.shields.io/badge/Ollama-local-111111)](https://ollama.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-65dbcc.svg)](LICENSE)
 
-A private-by-default retrieval-augmented generation application built with Python, Ollama, and embedded Qdrant. Upload local documents, retrieve semantically and lexically relevant passages, and generate grounded answers with visible citations—without a paid API or cloud database.
+A private-by-default retrieval-augmented generation application built with Python, Ollama, and embedded Qdrant. Upload local documents, retrieve semantically and lexically relevant passages, and generate grounded answers with visible citations—without a paid API or cloud database. An optional TypeSafe Jev integration can audit claim support and repair weak citations.
 
 **[Explore the interactive architecture](https://sanjaysrinivas.github.io/context-foundry/)** · [Read the source HTML](docs/index.html) · [OpenAPI after startup](http://127.0.0.1:8000/docs)
+
+![Context Foundry workspace answering from the NIST AI Risk Management Framework with a Jev support check and cited PDF source](docs/images/context-foundry-workspace.png)
 
 ## Why this project
 
@@ -28,10 +30,13 @@ flowchart LR
     A --> I[Load + chunk]
     I --> EP[Embedding provider]
     EP --> Q[(Local Qdrant)]
+    A --> S[(Retained source files)]
     A --> EP
     Q --> R[Hybrid top-k evidence]
     R --> CP[Chat provider]
     CP --> A
+    A -. opt-in claim and evidence check .-> J[TypeSafe Jev]
+    J -. assessment .-> A
     A --> U
 ```
 
@@ -89,11 +94,11 @@ and ask a question. Click a numbered citation to read its passage beside the ans
 open the original page, move between pages, or download the source. Failed uploads remain ready
 to retry, and a stopped or failed question leaves the previous answer available.
 
-The application stores vectors beneath `data/qdrant` and original uploads beneath its `sources/`
-directory, separated by collection. Replacing or removing a document also removes its stored
-original; files outside the app are unaffected. Documents indexed before source retention was
-added remain searchable; add them again to enable original-page previews. Both `.env` and
-`data/` are ignored by Git.
+The application stores vectors beneath `RAG_DATA_DIR` (`data/qdrant` by default) and original
+uploads beneath `RAG_DATA_DIR/sources/<collection-hash>`. Replacing, deleting, or clearing a
+document also removes its retained original; files outside the app are unaffected. Documents
+indexed before source retention was added remain searchable; add them again to enable original-page
+previews. Both `.env` and `data/` are ignored by Git.
 
 ## Optional Jev experiment
 
@@ -106,12 +111,13 @@ RAG_JEV_MODE=observe
 TYPESAFE_API_KEY=your-local-key
 ```
 
-Restart the app with `uv run --env-file .env local-rag`. The answer now includes an expandable
-**Check answer support** panel with support, contradiction, and insufficient-evidence probabilities, a suggested action,
-and expandable audit details. At the default experimental threshold of 0.90, Python suggests
-`keep` for high support, `withhold` for high contradiction or insufficient evidence, and `review`
-otherwise. These suggestions leave the answer and citation ledger unchanged. Provider failures
-show `unavailable` and still return the original answer.
+Restart the app with `uv run --env-file .env local-rag`. The workspace shows the active Jev mode
+before a question is submitted. After an answer, **Answer support check** summarizes the audit;
+each claim receives a plain-language status, the three probabilities remain available, and the
+technical record stays collapsed until requested. At the default experimental threshold of 0.90,
+Python suggests `keep` for high support, `withhold` for high contradiction or insufficient
+evidence, and `review` otherwise. These suggestions leave the answer and citation ledger
+unchanged. Provider failures show **Check unavailable** and still return the original answer.
 
 For opt-in citation repair, set `RAG_JEV_MODE=repair` and restart. When a claim's original check
 favors insufficient evidence, the app checks alternative passages already retrieved for that
@@ -119,11 +125,13 @@ question part, one at a time in retrieval order. It replaces the citation with t
 whose fresh support check meets the threshold. Claim text and the retrieved ledger stay intact.
 Existing support, contradiction, and unavailable results are retained. If no replacement passes
 or the shared audit budget expires, the original citation remains. Details retain the original
-assessment and every attempted replacement.
+assessment and every attempted replacement. The workspace marks a successful replacement as
+**Citation repaired** and shows the before-and-after source.
 
 Observation sends generated claims and their cited excerpt text to TypeSafe's hosted API.
 Repair also sends alternative retrieved excerpts when testing replacements. Each candidate is
-checked in isolation; passages from other question parts and filenames are excluded.
+checked in isolation; passages from other question parts, filenames, and retained original files
+are excluded.
 The default remains `off`, with no Jev network calls. Review your documents before enabling it.
 See the [design study](docs/jev-integration-study.md), [API notes](docs/jev-api-research.md), and
 [measured tests and replay instructions](docs/jev-testing.md).
@@ -186,7 +194,8 @@ distribution, suggested action, model, threshold, elapsed time, excerpt hashes, 
 Claims sharing the same cited set share a request ID and its token counts; deduplicate request IDs
 when summing usage. Repair records add `original`, `repair_attempts`, and `repair_policy_version`;
 deduplicate request IDs across those nested checks and the final record too. No-claim abstentions
-produce an empty audit list. `/health` also exposes `jev_mode`.
+produce an empty audit list. `/health` also exposes `jev_mode`, `max_upload_mb`, and whether both
+configured model endpoints are local.
 
 Use `POST /api/retrieve` with the same request body to inspect retrieval without generation. Delete one document with `DELETE /api/documents/{document_id}`, or clear the collection with `DELETE /api/documents`. A full clear and re-index is required after changing embedding models because vectors from different embedding spaces cannot be mixed.
 
@@ -239,7 +248,7 @@ To swap embeddings instead, change `RAG_EMBEDDING_PROVIDER` and `RAG_EMBEDDING_M
 
 ```text
 src/local_rag/
-├── api.py          # HTTP endpoints, browser UI, lifecycle
+├── api.py          # HTTP endpoints and application lifecycle
 ├── config.py       # validated environment configuration
 ├── documents.py    # PDF/text loading and chunking
 ├── evaluation.py   # golden-dataset runner and deterministic metrics
@@ -271,11 +280,12 @@ Development follows `feature/* → dev → main`. `dev` is the default integrati
 ## Privacy and security
 
 - In the default configuration, source text is sent only to Ollama on localhost and stored only in local Qdrant.
+- Original uploads are retained beneath `RAG_DATA_DIR` for local download and PDF page previews until the document is replaced, deleted, or the collection is cleared.
 - Retrieved text is treated as untrusted data; the system prompt instructs the model to ignore instructions embedded in documents.
 - Answers must cover each requested part from cited context, explicitly identify unsupported parts, and avoid filling gaps with model background knowledge.
 - Upload extension and size are validated, and uploaded filenames are never used as filesystem destinations.
 - Choosing a remote compatible endpoint changes the privacy boundary. Review that provider before sending documents.
-- Enabling Jev sends claims and excerpts to TypeSafe; repair mode may also send alternative retrieved passages. Its judgments do not establish factual correctness, answer completeness, or injection safety.
+- Enabling Jev sends claims and excerpts to TypeSafe; repair mode may also send alternative retrieved passages. Retained originals and filenames are not sent. Its judgments do not establish factual correctness, answer completeness, or injection safety.
 - This demo has no authentication and binds to `127.0.0.1`. Do not expose it directly to a network.
 
 See [SECURITY.md](SECURITY.md) for reporting and deployment guidance.
