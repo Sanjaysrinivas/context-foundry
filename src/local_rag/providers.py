@@ -214,8 +214,10 @@ its item names and order. A formatted flow diagram is explicit evidence: preserv
 step and branch in order.
 For a requested list of fields, checks, or items, put each leaf item in its own claim and omit a
 generic parent heading. Do not prefix claim text with a bullet or list number.
-Return one self-contained factual statement per claim. Put only excerpt numbers that directly
-support that claim in its citations array. Never put citation markers such as [1] in claim text.
+Return one self-contained factual statement per claim. Preserve the subject, relationship, and
+negation from the question. Never return a bare noun phrase: write "The study did not measure
+winter use," rather than "winter use." Put only excerpt numbers that directly support that claim
+in its citations array. Never put citation markers such as [1] in claim text.
 Use style "steps" for an ordered process, "bullets" for a set, and "paragraphs" otherwise.
 Put any unsupported part of the question in unsupported. Do not add suggestions or tangents."""
 
@@ -487,6 +489,10 @@ def _required_context_items(question: str, context: str) -> list[str]:
 def _validate_claim_grounding(answer: GroundedResponse, context: str) -> None:
     context_terms = _term_set(context)
     for claim in answer.claims:
+        if len(TOKEN_RE.findall(claim.text)) < 3:
+            raise ValueError(
+                f"claim must be a self-contained statement, not a short fragment: {claim.text}"
+            )
         claim_terms = _term_set(claim.text)
         if len(claim_terms) >= 6 and len(claim_terms & context_terms) / len(claim_terms) < 0.7:
             raise ValueError(f"claim is not lexically supported by context: {claim.text}")

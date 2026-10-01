@@ -1,6 +1,8 @@
 import hashlib
 from dataclasses import replace
+from pathlib import Path
 
+import pymupdf
 from fastapi.testclient import TestClient
 
 from local_rag.api import create_app
@@ -41,7 +43,7 @@ class FakeStore:
             chunks[0].document_id,
             chunks[0].source,
             len(chunks),
-            1,
+            chunks[0].page_count or 1,
             chunks[0].source_sha256,
         )
 
@@ -92,8 +94,8 @@ class FakeStore:
         self.closed = True
 
 
-def test_web_api_flow() -> None:
-    settings = replace(Settings.from_env(), max_upload_mb=1)
+def test_web_api_flow(tmp_path: Path) -> None:
+    settings = replace(Settings.from_env(), max_upload_mb=1, data_dir=tmp_path)
     store = FakeStore()
     service = RAGService(
         FakeEmbeddings(),
@@ -110,9 +112,12 @@ def test_web_api_flow() -> None:
         assert index.status_code == 200
         assert index.headers["x-frame-options"] == "DENY"
         assert index.headers["cache-control"] == "no-store"
-        assert "answer.innerHTML = data.answer_html" in index.text
-        assert "text.innerHTML = item.text_html" in index.text
-        assert "text.textContent = item.text" not in index.text
+        assert "/assets/app.js" in index.text
+        script = client.get("/assets/app.js")
+        assert script.status_code == 200
+        assert "answer.innerHTML = data.answer_html" in script.text
+        assert "text.innerHTML = item.text_html" in script.text
+        assert client.get("/assets/styles.css").status_code == 200
         assert client.get("/health").json()["chat_provider"] == "ollama"
 
         upload = client.post(
@@ -126,6 +131,7 @@ def test_web_api_flow() -> None:
         assert uploaded["source_sha256"] == hashlib.sha256(b"Evidence stays local.").hexdigest()
         assert uploaded["chunks"] == 1
         assert uploaded["pages"] == 1
+        assert uploaded["original_available"]
         assert client.get("/api/documents").json() == [uploaded]
 
         query = client.post(
@@ -169,8 +175,8 @@ def test_web_api_flow() -> None:
     assert store.closed
 
 
-def test_upload_validation_returns_client_error() -> None:
-    settings = replace(Settings.from_env(), max_upload_mb=1)
+def test_upload_validation_returns_client_error(tmp_path: Path) -> None:
+    settings = replace(Settings.from_env(), max_upload_mb=1, data_dir=tmp_path)
     store = FakeStore()
     service = RAGService(
         FakeEmbeddings(),
@@ -190,3 +196,82 @@ def test_upload_validation_returns_client_error() -> None:
 
     assert response.status_code == 400
     assert "Unsupported" in response.json()["detail"]
+
+
+def test_original_pdf_preview_replacement_and_removal(tmp_path: Path) -> None:
+    settings = replace(Settings.from_env(), data_dir=tmp_path)
+    store = FakeStore()
+    service = RAGService(
+        FakeEmbeddings(),
+        FakeChat(),
+        store,
+        chunk_size=200,
+        chunk_overlap=20,
+        top_k=4,
+        score_threshold=0.25,
+    )
+    with pymupdf.open() as pdf:  # type: ignore[no-untyped-call]
+        pdf.new_page()
+        pdf.new_page().insert_text((72, 72), "Evidence on the second page")
+        pdf.new_page()
+        content = pdf.tobytes()
+
+    with TestClient(create_app(settings, service)) as client:
+        uploaded = client.post(
+            "/api/documents", files={"file": ("report.pdf", content, "application/pdf")}
+        ).json()
+        document_id = uploaded["document_id"]
+        assert uploaded["original_available"]
+        assert client.get("/api/documents").json()[0]["pages"] == 3
+        original = client.get(f"/api/documents/{document_id}/original")
+        assert original.content == content
+        assert "attachment" in original.headers["content-disposition"]
+        assert original.headers["cache-control"] == "no-store"
+        page = client.get(f"/api/documents/{document_id}/pages/2")
+        assert page.status_code == 200
+        assert page.headers["content-type"] == "image/png"
+        assert page.content.startswith(b"\x89PNG")
+        assert client.get(f"/api/documents/{document_id}/pages/1").status_code == 200
+        assert client.get(f"/api/documents/{document_id}/pages/4").status_code == 400
+        assert client.get(f"/api/documents/{document_id}/pages/0").status_code == 400
+        assert client.get("/api/documents/unknown/original").status_code == 404
+        assert client.get(f"/api/documents/{'0' * 64}/original").status_code == 404
+
+        failed = client.post("/api/documents", files={"file": ("broken.pdf", b"broken")})
+        assert failed.status_code == 400
+        assert [path.name for path in (tmp_path / "sources").rglob("*") if path.is_file()] == [
+            document_id
+        ]
+
+        with pymupdf.open() as pdf:  # type: ignore[no-untyped-call]
+            pdf.new_page().insert_text((72, 72), "Updated evidence")
+            replacement = pdf.tobytes()
+        updated = client.post("/api/documents", files={"file": ("report.pdf", replacement)}).json()
+        assert updated["document_id"] != document_id
+        assert client.get(f"/api/documents/{document_id}/original").status_code == 404
+        assert not list((tmp_path / "sources").rglob(document_id))
+        assert client.delete(f"/api/documents/{updated['document_id']}").status_code == 200
+        assert not [path for path in (tmp_path / "sources").rglob("*") if path.is_file()]
+
+        client.post("/api/documents", files={"file": ("report.pdf", content)})
+        assert client.delete("/api/documents").status_code == 200
+        assert not [path for path in (tmp_path / "sources").rglob("*") if path.is_file()]
+
+
+def test_legacy_documents_remain_usable_without_original_files(tmp_path: Path) -> None:
+    settings = replace(Settings.from_env(), data_dir=tmp_path)
+    store = FakeStore()
+    store.document = DocumentInfo("legacy-id", "report.pdf", 1, 1)
+    service = RAGService(
+        FakeEmbeddings(),
+        FakeChat(),
+        store,
+        chunk_size=200,
+        chunk_overlap=20,
+        top_k=4,
+        score_threshold=0.25,
+    )
+    with TestClient(create_app(settings, service)) as client:
+        assert not client.get("/api/documents").json()[0]["original_available"]
+        assert client.get("/api/documents/legacy-id/original").status_code == 404
+        assert client.delete("/api/documents/legacy-id").status_code == 200

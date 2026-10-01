@@ -83,9 +83,17 @@ uv run --env-file .env local-rag
 
 On macOS or Linux, replace `Copy-Item` with `cp`. Open <http://127.0.0.1:8000>, upload a `.pdf`, `.md`, or `.txt` file, select the documents to search, and ask a question. Re-uploading a filename replaces its old chunks instead of leaving stale copies.
 
-The browser interface is organized as an evidence desk: manage and select sources in the library, ask from the question workspace, then inspect the answer's numbered citation ledger with page references and hybrid relevance scores.
+The browser workspace keeps your document library, answer, and source passages together. Add
+multiple files by browsing or dropping them into the library, select which documents to search,
+and ask a question. Click a numbered citation to read its passage beside the answer. For PDFs,
+open the original page, move between pages, or download the source. Failed uploads remain ready
+to retry, and a stopped or failed question leaves the previous answer available.
 
-The application stores vectors beneath `data/qdrant`. Both `.env` and `data/` are ignored by Git.
+The application stores vectors beneath `data/qdrant` and original uploads beneath its `sources/`
+directory, separated by collection. Replacing or removing a document also removes its stored
+original; files outside the app are unaffected. Documents indexed before source retention was
+added remain searchable; add them again to enable original-page previews. Both `.env` and
+`data/` are ignored by Git.
 
 ## Optional Jev experiment
 
@@ -98,8 +106,8 @@ RAG_JEV_MODE=observe
 TYPESAFE_API_KEY=your-local-key
 ```
 
-Restart the app with `uv run --env-file .env local-rag`. The answer now includes a **Claim checks**
-panel with support, contradiction, and insufficient-evidence probabilities, a suggested action,
+Restart the app with `uv run --env-file .env local-rag`. The answer now includes an expandable
+**Check answer support** panel with support, contradiction, and insufficient-evidence probabilities, a suggested action,
 and expandable audit details. At the default experimental threshold of 0.90, Python suggests
 `keep` for high support, `withhold` for high contradiction or insufficient evidence, and `review`
 otherwise. These suggestions leave the answer and citation ledger unchanged. Provider failures
@@ -129,7 +137,12 @@ curl -X POST http://127.0.0.1:8000/api/documents \
   -F "file=@notes.pdf"
 ```
 
-List indexed documents with `GET /api/documents`. The response includes each content-addressed `document_id`, raw-file `source_sha256`, filename, page count, and chunk count. Clear and re-index documents created before this field was introduced.
+List indexed documents with `GET /api/documents`. The response includes each content-addressed
+`document_id`, raw-file `source_sha256`, filename, full page count (including blank pages), chunk
+count, and `original_available`. Download a retained source with
+`GET /api/documents/{document_id}/original`. For PDFs,
+`GET /api/documents/{document_id}/pages/{page_number}` returns a locally rendered PNG of the
+original page; page numbers start at 1. Source downloads and previews use `Cache-Control: no-store`.
 
 Ask a grounded question:
 
@@ -235,7 +248,7 @@ src/local_rag/
 ├── providers.py    # chat/embedding protocols and adapters
 ├── service.py      # ingestion and question-answering pipeline
 ├── store.py        # vector-store protocol and local Qdrant
-└── web/index.html  # dependency-free UI
+└── web/            # dependency-free HTML, CSS, and JavaScript UI
 evaluation/         # public schema/example; private cases and results ignored
 docs/
 ├── index.html      # publishable architecture document

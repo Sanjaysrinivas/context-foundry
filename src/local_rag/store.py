@@ -84,6 +84,7 @@ class QdrantVectorStore:
                     "chunk_index": chunk.index,
                     "text": chunk.text,
                     "source_sha256": chunk.source_sha256,
+                    "page_count": chunk.page_count,
                 },
             )
             for chunk, vector in zip(chunks, vectors, strict=True)
@@ -188,7 +189,7 @@ class QdrantVectorStore:
     def list_documents(self) -> list[DocumentInfo]:
         if not self.client.collection_exists(self.collection):
             return []
-        grouped: dict[str, tuple[str, str, int, set[int]]] = {}
+        grouped: dict[str, tuple[str, str, int, int]] = {}
         for point in self._scroll():
             payload = cast(dict[str, Any], point.payload or {})
             document_id = str(payload.get("document_id", ""))
@@ -198,14 +199,14 @@ class QdrantVectorStore:
                     str(payload.get("source", "unknown")),
                     str(payload.get("source_sha256", "")),
                     0,
-                    set(),
+                    0,
                 ),
             )
-            pages.add(int(payload.get("page", 1)))
+            pages = max(pages, int(payload.get("page_count", 0)), int(payload.get("page", 1)))
             grouped[document_id] = (source, source_sha256, chunks + 1, pages)
         return sorted(
             (
-                DocumentInfo(document_id, source, chunks, len(pages), source_sha256)
+                DocumentInfo(document_id, source, chunks, pages, source_sha256)
                 for document_id, (source, source_sha256, chunks, pages) in grouped.items()
             ),
             key=lambda item: item.source.lower(),
@@ -231,6 +232,13 @@ class QdrantVectorStore:
 
     def clear(self) -> None:
         if self.client.collection_exists(self.collection):
+            # Embedded Qdrant may leave a locked SQLite file on Windows when dropping a
+            # collection. Delete its records first so recreating it cannot restore sources.
+            self.client.delete(
+                collection_name=self.collection,
+                points_selector=models.Filter(),
+                wait=True,
+            )
             self.client.delete_collection(self.collection)
 
     def close(self) -> None:

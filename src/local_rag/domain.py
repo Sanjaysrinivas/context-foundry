@@ -127,6 +127,7 @@ class Chunk:
     index: int
     text: str
     source_sha256: str = ""
+    page_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
