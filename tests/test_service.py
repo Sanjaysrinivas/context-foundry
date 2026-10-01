@@ -1,5 +1,10 @@
 from local_rag.domain import Chunk, DocumentInfo, GroundedClaim, GroundedResponse, SearchResult
-from local_rag.service import NO_EVIDENCE_RESPONSE, RAGService
+from local_rag.service import (
+    NO_EVIDENCE_RESPONSE,
+    RAGService,
+    _answer_section_title,
+    _retrieval_queries,
+)
 
 
 def claim(text: str, *citations: int) -> GroundedClaim:
@@ -332,6 +337,24 @@ async def test_retrieve_and_answer_cover_compound_question_parts() -> None:
     assert "Validation [1]" in answer.text
     assert "Anchors [2]" in answer.text
     assert "Chunk IDs change [3]" in answer.text
+
+
+def test_retrieval_queries_keep_intro_with_first_question_part() -> None:
+    assert _retrieval_queries(
+        "According to the document, what did the study find, and what did it not measure? "
+        "Answer in three brief bullet points."
+    ) == [
+        "According to the document, what did the study find",
+        "what did it not measure? Answer in three brief bullet points",
+    ]
+    assert (
+        _answer_section_title("According to the document, what did the study find")
+        == "What did the study find?"
+    )
+    assert (
+        _answer_section_title("what did it not measure? Answer in three brief bullet points")
+        == "What did it not measure?"
+    )
 
 
 async def test_document_lifecycle() -> None:

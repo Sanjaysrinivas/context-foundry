@@ -177,6 +177,28 @@ regressions reproducible but means acceptable paraphrases must be represented by
 phrases or reviewed manually. The gates are initial portfolio targets, not universal production
 guarantees.
 
+## Optional Jev claim/citation replay
+
+The Jev observer has a separate replay runner and eight public synthetic development fixtures in
+`evaluation/jev-smoke.jsonl`. It checks a claim against its cited passages directly, without
+Ollama, ingestion, or retrieval. Uncited decoys test evidence isolation. This diagnostic does not
+alter the approved-gold release metrics or promote synthetic labels to gold.
+
+~~~powershell
+uv run --frozen --env-file .env python -m local_rag.jev_evaluation --output evaluation/results/jev-smoke.json
+~~~
+
+The command sends the fixture claims and cited text to TypeSafe and requires `TYPESAFE_API_KEY`.
+It retains distributions and provenance, and exits with status 1 if any expected label disagrees
+or an audit is unavailable. A disagreement is evidence to inspect, not a reason to rewrite the
+expected label. The default 0.90 action threshold is experimental; reported confidence is not an
+independent probability of correctness. See [live results and limitations](jev-testing.md).
+
+For an enforcement experiment, first add source-reviewed claim/citation labels to a frozen,
+representative holdout and compare unsupported acceptance, supported withholding, review and
+outage rates, latency, and cost. The existing ledger-based citation metric alone does not measure
+whether each displayed claim follows from its particular citations.
+
 ## Change protocol
 
 1. Freeze the corpus, source hashes, evaluation cases, model tags, and retrieval configuration.

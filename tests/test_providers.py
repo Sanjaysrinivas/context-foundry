@@ -26,6 +26,7 @@ async def test_ollama_providers_parse_responses(monkeypatch: pytest.MonkeyPatch)
             assert "reproduce the directly relevant list completely" in messages[0]["content"]
             assert "explicit evidence" in messages[0]["content"]
             assert "citations array" in messages[0]["content"]
+            assert "Never return a bare noun phrase" in messages[0]["content"]
         if isinstance(payload.get("format"), dict):
             schema = payload["format"]
             assert isinstance(schema, dict)
@@ -35,7 +36,7 @@ async def test_ollama_providers_parse_responses(monkeypatch: pytest.MonkeyPatch)
             return {
                 "message": {
                     "content": '{"style":"paragraphs","claims":'
-                    '[{"text":"Grounded","citations":[1]}],"unsupported":[]}'
+                    '[{"text":"The answer is grounded","citations":[1]}],"unsupported":[]}'
                 }
             }
         if "format" in payload:
@@ -48,7 +49,7 @@ async def test_ollama_providers_parse_responses(monkeypatch: pytest.MonkeyPatch)
 
     assert await embeddings.embed(["a", "b"]) == [[0.1, 0.2], [0.3, 0.4]]
     assert await chat.answer("Question?", "[1] Evidence", 1) == GroundedResponse(
-        claims=[GroundedClaim(text="Grounded", citations=[1])]
+        claims=[GroundedClaim(text="The answer is grounded", citations=[1])]
     )
     assert await chat.complete("System", "User", json_mode=True) == "Grounded"
 
@@ -78,7 +79,7 @@ async def test_compatible_providers_parse_responses(
                     {
                         "message": {
                             "content": '{"style":"bullets","claims":'
-                            '[{"text":"Compatible answer","citations":[1]}],'
+                            '[{"text":"The compatible answer works","citations":[1]}],'
                             '"unsupported":[]}'
                         }
                     }
@@ -102,7 +103,7 @@ async def test_compatible_providers_parse_responses(
     assert await embeddings.embed(["a", "b"]) == [[0.1, 0.2], [0.3, 0.4]]
     assert await chat.answer("Question?", "Context", 1) == GroundedResponse(
         style="bullets",
-        claims=[GroundedClaim(text="Compatible answer", citations=[1])],
+        claims=[GroundedClaim(text="The compatible answer works", citations=[1])],
     )
     assert await chat.complete("System", "User", json_mode=True) == "Compatible answer"
 
@@ -134,8 +135,10 @@ async def test_grounded_answer_retries_invalid_citations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     responses = [
-        '{"style":"paragraphs","claims":[{"text":"Bad","citations":[2]}],"unsupported":[]}',
-        '{"style":"paragraphs","claims":[{"text":"Good","citations":[1]}],"unsupported":[]}',
+        '{"style":"paragraphs","claims":'
+        '[{"text":"The citation is invalid","citations":[2]}],"unsupported":[]}',
+        '{"style":"paragraphs","claims":'
+        '[{"text":"The answer is grounded","citations":[1]}],"unsupported":[]}',
     ]
 
     async def fake_post(
@@ -151,7 +154,7 @@ async def test_grounded_answer_retries_invalid_citations(
         "Question?", "[1] Evidence", 1
     )
 
-    assert answer.claims[0].text == "Good"
+    assert answer.claims[0].text == "The answer is grounded"
     assert not responses
 
 
@@ -188,6 +191,16 @@ def test_grounding_rejects_claims_with_unsupported_terms() -> None:
         providers._validate_claim_grounding(
             answer,
             "Chunk IDs belong in evaluation run outputs so new chunks can match stable regions.",
+        )
+
+
+def test_grounding_rejects_short_fragments() -> None:
+    answer = GroundedResponse(claims=[GroundedClaim(text="winter use", citations=[1])])
+
+    with pytest.raises(ValueError, match="self-contained statement"):
+        providers._validate_claim_grounding(
+            answer,
+            "The study did not measure winter use or maintenance costs.",
         )
 
 

@@ -108,3 +108,32 @@ def test_raw_source_hash_is_independent_of_filename() -> None:
 def test_rejects_unsupported_documents() -> None:
     with pytest.raises(RAGError, match="Unsupported"):
         load_document("notes.docx", b"content")
+
+
+def test_pdf_errors_explain_how_to_recover() -> None:
+    with pytest.raises(RAGError, match="empty"):
+        load_document("empty.pdf", b"")
+    with pytest.raises(RAGError, match="save a new copy"):
+        load_document("broken.pdf", b"not a PDF")
+
+    with pymupdf.open() as document:  # type: ignore[no-untyped-call]
+        document.new_page().insert_text((72, 72), "Private notes")
+        content = document.tobytes(
+            encryption=pymupdf.PDF_ENCRYPT_AES_256,  # type: ignore[attr-defined]
+            owner_pw="owner",
+            user_pw="reader",
+        )
+    with pytest.raises(RAGError, match="password protected.*unlocked copy"):
+        load_document("locked.pdf", content)
+
+
+def test_chunks_retain_the_full_page_count_including_blank_pages() -> None:
+    pages = [
+        Page("report.pdf", 1, ""),
+        Page("report.pdf", 2, "A finding"),
+        Page("report.pdf", 3, ""),
+    ]
+    chunks = chunk_pages(pages, chunk_size=50, overlap=0)
+    assert len(chunks) == 1
+    assert chunks[0].page == 2
+    assert chunks[0].page_count == 3

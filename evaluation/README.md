@@ -33,3 +33,15 @@ uv run --extra evaluation local-rag-eval-ragas path\to\private-cases.jsonl --jud
 Ragas reports faithfulness, context precision, context recall, and factual correctness. Its
 LLM-judge scores supplement the deterministic release gates and never turn generated cases into
 gold.
+
+The separate public `jev-smoke.jsonl` contains eight synthetic development cases for the optional
+claim/citation observer. These are not approved gold and do not enter the release metrics above.
+With `TYPESAFE_API_KEY` set locally, replay them directly against the hosted API:
+
+```powershell
+uv run --frozen --env-file .env python -m local_rag.jev_evaluation --output evaluation/results/jev-smoke.json
+```
+
+The runner reports label agreement, unsupported acceptances, supported withholds, review cases,
+latency, and token usage. It exits with status 1 for any label disagreement or unavailable audit;
+retain and inspect those results. See [the measured experiment](../docs/jev-testing.md).

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import math
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -25,6 +26,11 @@ class Settings:
     score_threshold: float
     max_upload_mb: int
     request_timeout: float
+    jev_mode: str = "off"
+    jev_api_key: str = field(default="", repr=False)
+    jev_model: str = "jev-1.13.0"
+    jev_timeout: float = 5.0
+    jev_threshold: float = 0.90
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -45,11 +51,26 @@ class Settings:
             score_threshold=float(os.getenv("RAG_SCORE_THRESHOLD", "0.15")),
             max_upload_mb=int(os.getenv("RAG_MAX_UPLOAD_MB", "10")),
             request_timeout=float(os.getenv("RAG_REQUEST_TIMEOUT", "120")),
+            jev_mode=os.getenv("RAG_JEV_MODE", "off"),
+            jev_api_key=os.getenv("TYPESAFE_API_KEY", ""),
+            jev_model=os.getenv("RAG_JEV_MODEL", "jev-1.13.0"),
+            jev_timeout=float(os.getenv("RAG_JEV_TIMEOUT", "5")),
+            jev_threshold=float(os.getenv("RAG_JEV_THRESHOLD", "0.90")),
         )
         settings.validate()
         return settings
 
     def validate(self) -> None:
+        if self.jev_mode not in {"off", "observe", "repair"}:
+            raise ValueError("Jev mode must be 'off', 'observe', or 'repair'")
+        if self.jev_mode != "off" and not self.jev_api_key.strip():
+            raise ValueError("TYPESAFE_API_KEY is required for Jev observation or repair")
+        if not self.jev_model.strip():
+            raise ValueError("Jev model must not be empty")
+        if not math.isfinite(self.jev_timeout) or self.jev_timeout <= 0:
+            raise ValueError("Jev timeout must be finite and positive")
+        if not math.isfinite(self.jev_threshold) or not 0.5 < self.jev_threshold <= 1:
+            raise ValueError("Jev threshold must be greater than 0.5 and at most one")
         supported = {"ollama", "openai-compatible"}
         if self.chat_provider not in supported or self.embedding_provider not in supported:
             msg = "providers must be 'ollama' or 'openai-compatible'"

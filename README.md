@@ -5,9 +5,11 @@
 [![Ollama](https://img.shields.io/badge/Ollama-local-111111)](https://ollama.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-65dbcc.svg)](LICENSE)
 
-A private-by-default retrieval-augmented generation application built with Python, Ollama, and embedded Qdrant. Upload local documents, retrieve semantically and lexically relevant passages, and generate grounded answers with visible citations—without a paid API or cloud database.
+A private-by-default retrieval-augmented generation application built with Python, Ollama, and embedded Qdrant. Upload local documents, retrieve semantically and lexically relevant passages, and generate grounded answers with visible citations—without a paid API or cloud database. An optional TypeSafe Jev integration can audit claim support and repair weak citations.
 
 **[Explore the interactive architecture](https://sanjaysrinivas.github.io/context-foundry/)** · [Read the source HTML](docs/index.html) · [OpenAPI after startup](http://127.0.0.1:8000/docs)
+
+![Context Foundry workspace answering from the NIST AI Risk Management Framework with a Jev support check and cited PDF source](docs/images/context-foundry-workspace.png)
 
 ## Why this project
 
@@ -28,10 +30,13 @@ flowchart LR
     A --> I[Load + chunk]
     I --> EP[Embedding provider]
     EP --> Q[(Local Qdrant)]
+    A --> S[(Retained source files)]
     A --> EP
     Q --> R[Hybrid top-k evidence]
     R --> CP[Chat provider]
     CP --> A
+    A -. opt-in claim and evidence check .-> J[TypeSafe Jev]
+    J -. assessment .-> A
     A --> U
 ```
 
@@ -83,9 +88,53 @@ uv run --env-file .env local-rag
 
 On macOS or Linux, replace `Copy-Item` with `cp`. Open <http://127.0.0.1:8000>, upload a `.pdf`, `.md`, or `.txt` file, select the documents to search, and ask a question. Re-uploading a filename replaces its old chunks instead of leaving stale copies.
 
-The browser interface is organized as an evidence desk: manage and select sources in the library, ask from the question workspace, then inspect the answer's numbered citation ledger with page references and hybrid relevance scores.
+The browser workspace keeps your document library, answer, and source passages together. Add
+multiple files by browsing or dropping them into the library, select which documents to search,
+and ask a question. Click a numbered citation to read its passage beside the answer. For PDFs,
+open the original page, move between pages, or download the source. Failed uploads remain ready
+to retry, and a stopped or failed question leaves the previous answer available.
 
-The application stores vectors beneath `data/qdrant`. Both `.env` and `data/` are ignored by Git.
+The application stores vectors beneath `RAG_DATA_DIR` (`data/qdrant` by default) and original
+uploads beneath `RAG_DATA_DIR/sources/<collection-hash>`. Replacing, deleting, or clearing a
+document also removes its retained original; files outside the app are unaffected. Documents
+indexed before source retention was added remain searchable; add them again to enable original-page
+previews. Both `.env` and `data/` are ignored by Git.
+
+## Optional Jev experiment
+
+Jev can check whether each generated claim follows from its actual cited excerpts. It runs after
+structured generation, independently of the chat and embedding providers. Enable the observer in
+your local `.env`:
+
+```dotenv
+RAG_JEV_MODE=observe
+TYPESAFE_API_KEY=your-local-key
+```
+
+Restart the app with `uv run --env-file .env local-rag`. The workspace shows the active Jev mode
+before a question is submitted. After an answer, **Answer support check** summarizes the audit;
+each claim receives a plain-language status, the three probabilities remain available, and the
+technical record stays collapsed until requested. At the default experimental threshold of 0.90,
+Python suggests `keep` for high support, `withhold` for high contradiction or insufficient
+evidence, and `review` otherwise. These suggestions leave the answer and citation ledger
+unchanged. Provider failures show **Check unavailable** and still return the original answer.
+
+For opt-in citation repair, set `RAG_JEV_MODE=repair` and restart. When a claim's original check
+favors insufficient evidence, the app checks alternative passages already retrieved for that
+question part, one at a time in retrieval order. It replaces the citation with the first passage
+whose fresh support check meets the threshold. Claim text and the retrieved ledger stay intact.
+Existing support, contradiction, and unavailable results are retained. If no replacement passes
+or the shared audit budget expires, the original citation remains. Details retain the original
+assessment and every attempted replacement. The workspace marks a successful replacement as
+**Citation repaired** and shows the before-and-after source.
+
+Observation sends generated claims and their cited excerpt text to TypeSafe's hosted API.
+Repair also sends alternative retrieved excerpts when testing replacements. Each candidate is
+checked in isolation; passages from other question parts, filenames, and retained original files
+are excluded.
+The default remains `off`, with no Jev network calls. Review your documents before enabling it.
+See the [design study](docs/jev-integration-study.md), [API notes](docs/jev-api-research.md), and
+[measured tests and replay instructions](docs/jev-testing.md).
 
 ## API
 
@@ -96,7 +145,12 @@ curl -X POST http://127.0.0.1:8000/api/documents \
   -F "file=@notes.pdf"
 ```
 
-List indexed documents with `GET /api/documents`. The response includes each content-addressed `document_id`, raw-file `source_sha256`, filename, page count, and chunk count. Clear and re-index documents created before this field was introduced.
+List indexed documents with `GET /api/documents`. The response includes each content-addressed
+`document_id`, raw-file `source_sha256`, filename, full page count (including blank pages), chunk
+count, and `original_available`. Download a retained source with
+`GET /api/documents/{document_id}/original`. For PDFs,
+`GET /api/documents/{document_id}/pages/{page_number}` returns a locally rendered PNG of the
+original page; page numbers start at 1. Source downloads and previews use `Cache-Control: no-store`.
 
 Ask a grounded question:
 
@@ -122,7 +176,9 @@ The response keeps generation and retrieval separately inspectable:
       "score": 0.82,
       "source_sha256": "0123456789abcdef..."
     }
-  ]
+  ],
+  "audit_mode": "off",
+  "audits": []
 }
 ```
 
@@ -131,6 +187,15 @@ and citation `text_html` are their server-rendered browser representations; raw 
 output and retrieved passages is disabled before rendering. Fenced flow diagrams extracted from
 PDFs are presented to both the reader and grounded generator as readable steps while their
 original citation `text` remains unchanged.
+
+With Jev enabled, `audit_mode` is `observe` or `repair` and `audits` contains one record per claim.
+Its citation IDs refer to the numbered response ledger. Records include the validated Choice
+distribution, suggested action, model, threshold, elapsed time, excerpt hashes, and request usage.
+Claims sharing the same cited set share a request ID and its token counts; deduplicate request IDs
+when summing usage. Repair records add `original`, `repair_attempts`, and `repair_policy_version`;
+deduplicate request IDs across those nested checks and the final record too. No-claim abstentions
+produce an empty audit list. `/health` also exposes `jev_mode`, `max_upload_mb`, and whether both
+configured model endpoints are local.
 
 Use `POST /api/retrieve` with the same request body to inspect retrieval without generation. Delete one document with `DELETE /api/documents/{document_id}`, or clear the collection with `DELETE /api/documents`. A full clear and re-index is required after changing embedding models because vectors from different embedding spaces cannot be mixed.
 
@@ -173,12 +238,17 @@ To swap embeddings instead, change `RAG_EMBEDDING_PROVIDER` and `RAG_EMBEDDING_M
 | `RAG_SCORE_THRESHOLD` | `0.15` | minimum score for the dense retrieval leg; BM25 ranks independently |
 | `RAG_MAX_UPLOAD_MB` | `10` | upload boundary |
 | `RAG_REQUEST_TIMEOUT` | `120` | model request timeout in seconds |
+| `RAG_JEV_MODE` | `off` | `observe` for hosted checks; `repair` also verifies replacement citations |
+| `TYPESAFE_API_KEY` | empty | secret used only for Jev requests |
+| `RAG_JEV_MODEL` | `jev-1.13.0` | pinned Jev model |
+| `RAG_JEV_TIMEOUT` | `5` | total audit budget per question part in seconds; at most three parts |
+| `RAG_JEV_THRESHOLD` | `0.90` | experimental action threshold; greater than 0.5 and at most 1 |
 
 ## Project layout
 
 ```text
 src/local_rag/
-├── api.py          # HTTP endpoints, browser UI, lifecycle
+├── api.py          # HTTP endpoints and application lifecycle
 ├── config.py       # validated environment configuration
 ├── documents.py    # PDF/text loading and chunking
 ├── evaluation.py   # golden-dataset runner and deterministic metrics
@@ -187,7 +257,7 @@ src/local_rag/
 ├── providers.py    # chat/embedding protocols and adapters
 ├── service.py      # ingestion and question-answering pipeline
 ├── store.py        # vector-store protocol and local Qdrant
-└── web/index.html  # dependency-free UI
+└── web/            # dependency-free HTML, CSS, and JavaScript UI
 evaluation/         # public schema/example; private cases and results ignored
 docs/
 ├── index.html      # publishable architecture document
@@ -210,10 +280,12 @@ Development follows `feature/* → dev → main`. `dev` is the default integrati
 ## Privacy and security
 
 - In the default configuration, source text is sent only to Ollama on localhost and stored only in local Qdrant.
+- Original uploads are retained beneath `RAG_DATA_DIR` for local download and PDF page previews until the document is replaced, deleted, or the collection is cleared.
 - Retrieved text is treated as untrusted data; the system prompt instructs the model to ignore instructions embedded in documents.
 - Answers must cover each requested part from cited context, explicitly identify unsupported parts, and avoid filling gaps with model background knowledge.
 - Upload extension and size are validated, and uploaded filenames are never used as filesystem destinations.
 - Choosing a remote compatible endpoint changes the privacy boundary. Review that provider before sending documents.
+- Enabling Jev sends claims and excerpts to TypeSafe; repair mode may also send alternative retrieved passages. Retained originals and filenames are not sent. Its judgments do not establish factual correctness, answer completeness, or injection safety.
 - This demo has no authentication and binds to `127.0.0.1`. Do not expose it directly to a network.
 
 See [SECURITY.md](SECURITY.md) for reporting and deployment guidance.
@@ -228,7 +300,10 @@ See [SECURITY.md](SECURITY.md) for reporting and deployment guidance.
 | GitHub Actions and Pages | $0 within the public-repository allowances |
 | Cloud infrastructure | not used |
 
-Pulumi, AWS, hosted model APIs, authentication, background workers, neural reranking, and multi-user tenancy are deferred. They add cost or operational weight without improving this local portfolio baseline. The [architecture](https://sanjaysrinivas.github.io/context-foundry/) lists the concrete triggers for each upgrade.
+The optional Jev observer uses a paid hosted API; it is outside the zero-cost local default.
+Pulumi, AWS, authentication, background workers, neural reranking, and multi-user tenancy are
+deferred. The [architecture](https://sanjaysrinivas.github.io/context-foundry/) lists the concrete
+triggers for each upgrade.
 
 ## Evaluation and limitations
 

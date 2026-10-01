@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from dataclasses import replace
 
 from local_rag.documents import (
@@ -12,17 +13,34 @@ from local_rag.documents import (
     flow_diagram_markdown,
     load_document,
 )
-from local_rag.domain import Answer, DocumentInfo, GroundedResponse, RAGError, SearchResult
-from local_rag.providers import ChatProvider, EmbeddingProvider
+from local_rag.domain import (
+    Answer,
+    CitationCheck,
+    ClaimAudit,
+    DocumentInfo,
+    GroundedClaim,
+    GroundedResponse,
+    RAGError,
+    SearchResult,
+)
+from local_rag.providers import ChatProvider, EmbeddingProvider, JevAuditor
 from local_rag.store import VectorStore, _lexical_terms, lexical_tokens
 
 QUERY_BOUNDARY_RE = re.compile(
-    r"(?:[;?]\s+|,\s*(?=(?:(?:then|also)\s+)?"
+    r"(?:[;?]\s+(?=(?:(?:then|also)\s+)?"
+    r"(?:explain|describe|compare|list|specify|identify|summarize|why|how|what|which|who|when|where)\b)"
+    r"|,\s*(?=(?:(?:then|also)\s+)?"
     r"(?:explain|describe|compare|list|specify|identify|summarize|why|how|what|which|who|when|where)\b)"
     r"|\s+(?:and|then|also)\s+(?="
     r"(?:explain|describe|compare|list|specify|identify|summarize|why|how|what|which|who|when|where)\b))",
     re.IGNORECASE,
 )
+QUERY_PREAMBLE_RE = re.compile(r"^(?:according to|based on|using|from|within|in)\b", re.IGNORECASE)
+QUERY_ACTION_RE = re.compile(
+    r"\b(?:explain|describe|compare|list|specify|identify|summarize|why|how|what|which|who|when|where)\b",
+    re.IGNORECASE,
+)
+ANSWER_FORMAT_RE = re.compile(r"\?\s+(?:answer|respond|write|return|use)\b.*$", re.IGNORECASE)
 UNICODE_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
 CLAIM_PREFIX_RE = re.compile(r"^(?:[-*+]\s+|\d+[.)]\s+)")
 NO_EVIDENCE_RESPONSE = "I could not find enough relevant evidence in the indexed documents."
@@ -60,6 +78,8 @@ class RAGService:
         top_k: int,
         score_threshold: float,
         embedding_batch_size: int = 32,
+        auditor: JevAuditor | None = None,
+        repair_citations: bool = False,
     ) -> None:
         self.embedding_provider = embedding_provider
         self.chat_provider = chat_provider
@@ -68,6 +88,8 @@ class RAGService:
         self.chunk_overlap = chunk_overlap
         self.embedding_batch_size = embedding_batch_size
         self.top_k = top_k
+        self.auditor = auditor
+        self.repair_citations = repair_citations
         self.score_threshold = score_threshold
         self._store_lock = asyncio.Lock()
 
@@ -148,7 +170,8 @@ class RAGService:
             _result_key(match): index for index, (match, _query) in enumerate(evidence, 1)
         }
         answers: list[str] = []
-        for query, group in zip(queries, generation_groups, strict=True):
+        audits: list[ClaimAudit] = []
+        for query, group, retrieved_group in zip(queries, generation_groups, groups, strict=True):
             scoped = [match for match in group if _result_key(match) in citation_numbers]
             if not scoped:
                 text = f"Insufficient evidence for: {query}"
@@ -163,12 +186,103 @@ class RAGService:
                     index: citation_numbers[_result_key(match)]
                     for index, match in enumerate(scoped, 1)
                 }
+                if self.auditor is not None:
+                    deadline = time.perf_counter() + self.auditor.timeout
+                    audit_claims = [
+                        claim.model_copy(
+                            update={
+                                "text": _claim_text(claim.text),
+                                "citations": [
+                                    local_to_global[number] for number in claim.citations
+                                ],
+                            }
+                        )
+                        for claim in draft.claims
+                    ]
+                    audit_sources = {
+                        local_to_global[index]: replace(
+                            match, text=_context_text(match.text, query)
+                        )
+                        for index, match in enumerate(scoped, 1)
+                    }
+                    checked = await self.auditor.audit(
+                        audit_claims, audit_sources, claim_offset=len(audits)
+                    )
+                    if self.repair_citations:
+                        repair_sources = {
+                            citation_numbers[_result_key(match)]: replace(
+                                match, text=_context_text(match.text, query)
+                            )
+                            for match in retrieved_group
+                            if _result_key(match) in citation_numbers
+                        }
+                        checked = await self._repair_claim_citations(
+                            audit_claims, checked, repair_sources, deadline
+                        )
+                        draft = draft.model_copy(
+                            update={
+                                "claims": [
+                                    claim.model_copy(update={"citations": audit.citations})
+                                    for claim, audit in zip(draft.claims, checked, strict=True)
+                                ]
+                            }
+                        )
+                        local_to_global = {number: number for number in citation_numbers.values()}
+                    audits.extend(checked)
                 text = _render_grounded_response(draft, local_to_global, query)
-            answers.append(f"## {query}\n\n{text}" if len(queries) > 1 else text)
+            title = _answer_section_title(query)
+            answers.append(f"## {title}\n\n{text}" if len(queries) > 1 else text)
 
         text = "\n\n".join(answers)
         matches = [match for match, _query in evidence]
-        return Answer(text, matches)
+        return Answer(text, matches, audits)
+
+    async def _repair_claim_citations(
+        self,
+        claims: list[GroundedClaim],
+        audits: list[ClaimAudit],
+        sources: dict[int, SearchResult],
+        deadline: float,
+    ) -> list[ClaimAudit]:
+        auditor = self.auditor
+        assert auditor is not None
+        for index, audit in enumerate(audits):
+            if audit.assessment is None or audit.assessment.choice != "insufficient":
+                continue
+            original = CitationCheck.model_validate(audit.model_dump())
+            attempts: list[CitationCheck] = []
+            selected = audit
+            # ponytail: try single passages in retrieval order; joint citation-set search is
+            # deferred until source-reviewed failures justify its combinatorial cost.
+            for number, passage in sources.items():
+                remaining = deadline - time.perf_counter()
+                if remaining <= 0:
+                    break
+                if number in audit.citations:
+                    continue
+                candidate = claims[index].model_copy(update={"citations": [number]})
+                checked = (
+                    await auditor.audit(
+                        [candidate],
+                        {number: passage},
+                        claim_offset=audit.claim_id - 1,
+                        time_budget=remaining,
+                    )
+                )[0]
+                attempts.append(CitationCheck.model_validate(checked.model_dump()))
+                if checked.suggested_action == "keep":
+                    selected = checked
+                    break
+                if checked.status == "unavailable":
+                    break
+            audits[index] = selected.model_copy(
+                update={
+                    "original": original,
+                    "repair_attempts": attempts,
+                    "repair_policy_version": "single-passage-v1",
+                }
+            )
+        return audits
 
     async def list_documents(self) -> list[DocumentInfo]:
         async with self._store_lock:
@@ -189,7 +303,24 @@ class RAGService:
 def _retrieval_queries(question: str) -> list[str]:
     parts = [part.strip(" ,.;:?") for part in QUERY_BOUNDARY_RE.split(question)]
     useful_parts = [part for part in parts if len(part.split()) >= 3]
+    if (
+        len(useful_parts) > 1
+        and QUERY_PREAMBLE_RE.match(useful_parts[0])
+        and not QUERY_ACTION_RE.search(useful_parts[0])
+    ):
+        useful_parts[1] = f"{useful_parts[0]}, {useful_parts[1]}"
+        useful_parts = useful_parts[1:]
     return useful_parts[:3] if len(useful_parts) > 1 else [question]
+
+
+def _answer_section_title(query: str) -> str:
+    title = ANSWER_FORMAT_RE.sub("", query).strip(" ,.;:?")
+    if "," in title:
+        preamble, candidate = title.split(",", 1)
+        if QUERY_PREAMBLE_RE.match(preamble) and QUERY_ACTION_RE.search(candidate):
+            title = candidate.strip()
+    title = title[:1].upper() + title[1:]
+    return f"{title}?" if title and QUERY_ACTION_RE.match(title) else title
 
 
 def _interleave_unique(
@@ -294,6 +425,11 @@ def _structured_item_count(text: str, query: str) -> int:
     return max(structured, max(0, table_rows - 1))
 
 
+def _claim_text(text: str) -> str:
+    text = CLAIM_PREFIX_RE.sub("", text.strip())
+    return UNICODE_ESCAPE_RE.sub(lambda match: chr(int(match.group(1), 16)), text)
+
+
 def _render_grounded_response(
     response: GroundedResponse, citation_mapping: dict[int, int], query: str
 ) -> str:
@@ -301,8 +437,7 @@ def _render_grounded_response(
     for claim in response.claims:
         citations = sorted({citation_mapping[number] for number in claim.citations})
         references = " ".join(f"[{number}]" for number in citations)
-        claim_text = CLAIM_PREFIX_RE.sub("", claim.text.strip())
-        claim_text = UNICODE_ESCAPE_RE.sub(lambda match: chr(int(match.group(1), 16)), claim_text)
+        claim_text = _claim_text(claim.text)
         claims.append(f"{claim_text} {references}")
 
     if response.style == "steps":
