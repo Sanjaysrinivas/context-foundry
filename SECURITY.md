@@ -16,6 +16,14 @@ Browser responses set a restrictive same-origin content policy, deny framing and
 
 Generated answers are rendered as Markdown with raw HTML disabled. The browser only inserts the server-rendered `answer_html`; API consumers that render the plain `answer` field must apply equivalent restrictions instead of trusting model output as HTML.
 
+Original uploads are retained beneath `RAG_DATA_DIR/sources/<collection-hash>` so the local UI can
+download them and render PDF pages. Stored filenames are metadata and never become filesystem
+destinations. Replacing or deleting a document removes its retained source; clearing the collection
+removes all retained sources for that collection. Source downloads and page previews are served
+with `Cache-Control: no-store`, but any user or process with access to the data directory can read
+the files, so protect that directory and include it in the same backup and deletion policy as the
+vector store.
+
 Before any shared deployment, add and verify:
 
 - authenticated access and authorization;
@@ -34,7 +42,8 @@ excerpts. Observation excludes uncited passages from the request state. `RAG_JEV
 also submits alternative passages already retrieved for the same question part, individually,
 when looking for replacement citations. Claim text and the retrieved ledger are preserved;
 citations change only after a fresh support check passes the threshold. Filenames, credentials,
-and passages retrieved only for other question parts remain excluded from each check.
+retained original files, and passages retrieved only for other question parts remain excluded from
+each check.
 Keep `TYPESAFE_API_KEY` in the Git-ignored `.env` or environment. Audit records expose sanitized
 status errors rather than remote error bodies. They are rendered as plain text in the browser.
 Observation does not filter answers. Citation repair does not rewrite claims or establish that

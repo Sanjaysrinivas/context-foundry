@@ -39,6 +39,11 @@ Use `feat` for user-visible capability, `fix` for a defect, and `!` or a `BREAKI
 - `uv run nox -s tests` runs pytest with an 80% coverage floor.
 - Mark fast isolated tests with `unit`; use `integration` when local infrastructure is exercised.
 - Provider tests must use fakes or HTTP mocks. CI must never require API keys or downloaded models.
+- For browser changes, run the app and verify upload, document selection, question submission,
+  citation navigation, and PDF page viewing at desktop and mobile widths. Check the browser console
+  and confirm keyboard focus remains visible. Use public or synthetic documents for screenshots.
+- Test Jev UI states with deterministic fixtures or mocks. A live TypeSafe check is an optional
+  manual verification and must use public or synthetic evidence; CI must keep Jev disabled.
 - For retrieval, chunking, parsing, prompt, or model changes, run the matching private golden dataset with `uv run local-rag-eval evaluation/private/cases.jsonl` and report metric changes in the pull request. Ragas (`uv run --extra evaluation local-rag-eval-ragas ...`) is an optional diagnostic, not a release gate.
 
 ## Design guardrails
