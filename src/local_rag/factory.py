@@ -7,6 +7,7 @@ from local_rag.providers import (
     ChatProvider,
     CompletionProvider,
     EmbeddingProvider,
+    JevAuditor,
     OllamaChatProvider,
     OllamaEmbeddingProvider,
     OpenAICompatibleChatProvider,
@@ -26,6 +27,17 @@ def build_service(settings: Settings) -> RAGService:
         embedding_batch_size=settings.embedding_batch_size,
         top_k=settings.top_k,
         score_threshold=settings.score_threshold,
+        auditor=(
+            JevAuditor(
+                settings.jev_api_key,
+                settings.jev_model,
+                settings.jev_timeout,
+                settings.jev_threshold,
+            )
+            if settings.jev_mode != "off"
+            else None
+        ),
+        repair_citations=settings.jev_mode == "repair",
     )
 
 

@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Context Foundry · Citation audit experiment</title>
+  <style>
+    :root {
+      --paper: #f3f6f8; --surface: #fbfcfe; --carbon: #162033;
+      --cobalt: #275dad; --teal: #207a6b; --orange: #bb4929; --line: #cbd3dc;
+      --display: Bahnschrift, "Arial Narrow", sans-serif;
+      --body: Aptos, "Segoe UI", sans-serif;
+      --utility: "Cascadia Mono", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--carbon); font: 16px/1.55 var(--body); }
+    main { max-width: 1120px; margin: auto; padding: 36px 24px; }
+    header { border-bottom: 2px solid var(--carbon); padding-bottom: 24px; }
+    .brand, .label { font: 700 12px/1.5 var(--utility); text-transform: uppercase; letter-spacing: .08em; }
+    .brand { color: var(--cobalt); }
+    h1 { font: 600 clamp(30px, 5vw, 52px)/1.1 var(--display); margin: 16px 0; max-width: 800px; }
+    h2 { font: 600 23px/1.2 var(--display); margin-top: 0; }
+    p { margin: 10px 0; }
+    .notice { border-left: 4px solid var(--orange); padding: 10px 16px; background: #fff0ea; }
+    .controls { display: flex; align-items: end; flex-wrap: wrap; gap: 24px; margin: 24px 0; }
+    label { display: block; font-weight: 650; }
+    select, input, button { font: inherit; }
+    select { padding: 8px; max-width: 100%; color: var(--carbon); background: var(--surface); border: 1px solid var(--line); }
+    input[type="range"] { display: block; width: 230px; accent-color: var(--cobalt); }
+    :focus-visible { outline: 3px solid var(--cobalt); outline-offset: 4px; }
+    .flow { font: 13px/1.8 var(--utility); color: var(--cobalt); margin: 24px 0; }
+    .desk { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    section { background: var(--surface); padding: 24px; border: 1px solid var(--line); min-width: 0; }
+    blockquote { margin: 18px 0; padding: 12px 16px; border-left: 3px solid var(--line); background: var(--paper); }
+    .claim { font: 20px/1.6 "Sitka Text", Georgia, serif; }
+    .label { color: var(--cobalt); }
+    .badge { display: inline-block; padding: 6px 10px; border: 1px solid currentColor; font: 700 13px/1.5 var(--utility); }
+    .badge[data-outcome="keep"] { color: var(--teal); }
+    .badge[data-outcome="withhold"] { color: var(--orange); }
+    .badge[data-outcome="review"], .badge[data-outcome="unavailable"] { color: var(--cobalt); }
+    .distribution { margin-top: 24px; }
+    .probability { display: grid; grid-template-columns: 120px 1fr 54px; gap: 12px; align-items: center; font-size: 14px; margin: 10px 0; }
+    meter { width: 100%; height: 18px; }
+    .probability output { text-align: right; font-family: var(--utility); }
+    .result { margin-top: 24px; border-top: 3px solid var(--cobalt); }
+    #reason { font-weight: 650; }
+    .muted { font-size: 14px; color: #4a576a; }
+    details { margin: 24px 0; }
+    summary { cursor: pointer; font-weight: 650; }
+    pre { font: 13px/1.6 var(--utility); white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; background: var(--paper); }
+    a { color: var(--cobalt); text-underline-offset: 3px; }
+    footer { margin-top: 28px; font-size: 14px; }
+    @media (max-width: 680px) {
+      main { padding: 24px 16px; }
+      .desk { grid-template-columns: 1fr; }
+      section { padding: 18px; }
+      .controls { align-items: stretch; flex-direction: column; gap: 16px; }
+      .probability { grid-template-columns: 105px 1fr 46px; gap: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="brand">Context Foundry / Experiment</p>
+      <h1>Does the citation actually support the claim?</h1>
+      <p>Ollama writes the claim. Jev estimates its relationship to the cited evidence. Our code chooses the action.</p>
+      <p class="notice"><strong>Illustrative simulator.</strong> Every probability is an invented fixture. This page sends no requests and demonstrates a proposed policy, not Jev's accuracy.</p>
+    </header>
+    <div class="controls">
+      <div>
+        <label for="scenario">Inspect an example</label>
+        <select id="scenario">
+          <option value="supported">A supported claim</option>
+          <option value="reversed">Reversed meaning</option>
+          <option value="wrong-citation">The answer is in an uncited passage</option>
+          <option value="short">A short unsupported claim</option>
+          <option value="ambiguous">Uncertain source wording</option>
+          <option value="joint">Two citations support one claim together</option>
+          <option value="unavailable">The audit is unavailable</option>
+        </select>
+      </div>
+      <div>
+        <label for="threshold">Action threshold: <output id="threshold-value">0.90</output></label>
+        <input id="threshold" type="range" min="0.55" max="0.99" step="0.01" value="0.90">
+      </div>
+      <label><input id="enforce" type="checkbox"> Preview filtering the claim</label>
+    </div>
+    <p class="flow">Hybrid retrieval → selected evidence → Ollama claim → citation audit → code policy → answer</p>
+    <div class="desk">
+      <section aria-labelledby="evidence-title">
+        <p class="label">Evidence permitted for this audit</p>
+        <h2 id="evidence-title">The cited passages</h2>
+        <div id="evidence"></div>
+        <p id="baseline" class="muted"></p>
+      </section>
+      <section aria-labelledby="claim-title">
+        <p class="label">Before publication</p>
+        <h2 id="claim-title">The draft claim</h2>
+        <p id="claim" class="claim"></p>
+        <div class="distribution" id="distribution" aria-label="Illustrative relation probabilities"></div>
+        <p id="probability-note" class="muted"></p>
+      </section>
+    </div>
+    <section class="result" aria-labelledby="result-title" aria-live="polite">
+      <p class="label" id="mode"></p>
+      <h2 id="result-title">The outcome</h2>
+      <span id="outcome" class="badge"></span>
+      <p id="reason"></p>
+      <p id="published" class="claim"></p>
+      <p class="muted">The threshold is a demonstration value. Calibrate it against reviewed claims before changing real answers. No average score can make an unsupported claim safe.</p>
+      <details>
+        <summary>Inspect the proposed application trace</summary>
+        <pre id="trace"></pre>
+      </details>
+    </section>
+    <footer>
+      <a href="jev-integration-study.md">Read the repository integration study</a> ·
+      <a href="https://docs.typesafe.ai/cookbooks/citation_check">Official citation recipe</a> ·
+      <a href="https://docs.typesafe.ai/confidence">Probabilities and confidence</a>
+      <p>This policy uses option probabilities. Jev also returns Choice confidence, a separate summary of the distribution; this simulator does not compute it.</p>
+    </footer>
+  </main>
+  <script>
+    // ponytail: fixed examples answer the policy/UI question; add live scores only after a reviewed replay.
+    const examples = {
+      supported: {
+        claim: "The cancellation window is thirty days after submission. [1]",
+        evidence: ["[1] policy.txt · page 2\nThe cancellation window is thirty days after submission."],
+        probabilities: {supported: .96, contradicted: .02, insufficient: .02},
+        baseline: "The current lexical validator accepts this supported claim."
+      },
+      reversed: {
+        claim: "Private documents are stored locally without cloud providers. [1]",
+        evidence: ["[1] policy.txt · page 1\nPrivate documents are not stored locally without cloud providers."],
+        probabilities: {supported: .02, contradicted: .96, insufficient: .02},
+        baseline: "Reproduced in this repo: the lexical validator accepts this reversed meaning."
+      },
+      "wrong-citation": {
+        claim: "The cancellation window is thirty days after submission. [1]",
+        evidence: ["[1] policy.txt · page 1\nThis section describes the escalation contact."],
+        probabilities: {supported: .02, contradicted: .03, insufficient: .95},
+        baseline: "Reproduced: the validator accepts this when uncited passage [2] contains the answer. That uncited passage must be excluded from the citation audit."
+      },
+      short: {
+        claim: "Alice approved it. [1]",
+        evidence: ["[1] notes.txt · page 1\nNo approver is recorded."],
+        probabilities: {supported: .01, contradicted: .02, insufficient: .97},
+        baseline: "Reproduced: claims with fewer than six lexical terms bypass the current overlap check."
+      },
+      ambiguous: {
+        claim: "Customers can cancel within thirty days. [1]",
+        evidence: ["[1] draft-policy.txt · page 2\nA thirty-day cancellation window is under consideration; approval remains pending."],
+        probabilities: {supported: .65, contradicted: .10, insufficient: .25},
+        baseline: "Use the slider to see why an arbitrary low threshold can publish a claim needing review."
+      },
+      joint: {
+        claim: "The service is available in Rome and Milan. [1] [2]",
+        evidence: ["[1] coverage.txt · page 1\nThe service is available in Rome.", "[2] coverage.txt · page 2\nThe service is also available in Milan."],
+        probabilities: {supported: .93, contradicted: .01, insufficient: .06},
+        baseline: "Assess the cited set collectively. Requiring each individual citation to prove the whole claim would reject valid combined evidence."
+      },
+      unavailable: {
+        claim: "The cancellation window is thirty days after submission. [1]",
+        evidence: ["[1] policy.txt · page 2\nThe cancellation window is thirty days after submission."],
+        probabilities: null,
+        baseline: "A timeout or invalid response is an unavailable audit, not a low support score."
+      }
+    };
+    function policy(probabilities, threshold) {
+      if (probabilities === null) return "unavailable";
+      const values = ["supported", "contradicted", "insufficient"].map(key => probabilities[key]);
+      if (!values.every(value => Number.isFinite(value) && value >= 0 && value <= 1) ||
+          Math.abs(values.reduce((sum, value) => sum + value, 0) - 1) > 1e-6 ||
+          !Number.isFinite(threshold) || threshold < .55 || threshold > .99) {
+        throw new Error("Invalid illustrative probability distribution or threshold");
+      }
+      if (probabilities.supported >= threshold) return "keep";
+      if (Math.max(probabilities.contradicted, probabilities.insufficient) >= threshold) return "withhold";
+      return "review";
+    }
+    function checkPolicy() {
+      for (const [key, expected] of [
+        ["supported", "keep"], ["reversed", "withhold"], ["wrong-citation", "withhold"],
+        ["short", "withhold"], ["ambiguous", "review"], ["joint", "keep"], ["unavailable", "unavailable"]
+      ]) {
+        if (policy(examples[key].probabilities, .90) !== expected) throw new Error("Policy check failed: " + key);
+      }
+      if (policy(examples.ambiguous.probabilities, .60) !== "keep") throw new Error("Threshold check failed");
+      if (policy(examples.joint.probabilities, .95) !== "review") throw new Error("Boundary check failed");
+      let rejected = false;
+      try { policy({supported: 2, contradicted: 0, insufficient: 0}, .90); } catch { rejected = true; }
+      if (!rejected) throw new Error("Validation check failed");
+      return "10 policy checks passed";
+    }
+    function render() {
+      const item = examples[document.querySelector("#scenario").value];
+      const threshold = Number(document.querySelector("#threshold").value);
+      const enforce = document.querySelector("#enforce").checked;
+      const outcome = policy(item.probabilities, threshold);
+      document.querySelector("#threshold-value").textContent = threshold.toFixed(2);
+      document.querySelector("#claim").textContent = item.claim;
+      document.querySelector("#baseline").textContent = item.baseline;
+      const evidence = document.querySelector("#evidence");
+      evidence.replaceChildren();
+      item.evidence.forEach(excerpt => {
+        const quote = document.createElement("blockquote");
+        quote.textContent = excerpt;
+        evidence.append(quote);
+      });
+      const distribution = document.querySelector("#distribution");
+      distribution.replaceChildren();
+      if (item.probabilities) {
+        Object.entries(item.probabilities).forEach(([name, probability]) => {
+          const row = document.createElement("div");
+          row.className = "probability";
+          const label = document.createElement("span");
+          label.textContent = name;
+          const meter = document.createElement("meter");
+          meter.min = 0; meter.max = 1; meter.value = probability;
+          meter.setAttribute("aria-label", name + " probability");
+          const number = document.createElement("output");
+          number.textContent = Math.round(probability * 100) + "%";
+          row.append(label, meter, number);
+          distribution.append(row);
+        });
+      }
+      document.querySelector("#probability-note").textContent = item.probabilities ?
+        "Invented Choice probabilities; these sum to 1. They are not observed model results." :
+        "No probabilities: the audit did not complete.";
+      const badge = document.querySelector("#outcome");
+      badge.dataset.outcome = outcome;
+      badge.textContent = {keep: "Keep", withhold: "Withhold", review: "Needs review", unavailable: "Unavailable"}[outcome];
+      document.querySelector("#mode").textContent = enforce ? "Filtering preview / browser only" : "Observer mode / answer unchanged";
+      document.querySelector("#reason").textContent = {
+        keep: "Support meets the chosen threshold.",
+        withhold: "Contradiction or insufficient evidence meets the chosen threshold.",
+        review: "No relation meets the threshold. A further check is needed.",
+        unavailable: "The audit failed. Observer mode keeps the baseline; filtering preview withholds the unaudited claim."
+      }[outcome];
+      document.querySelector("#published").textContent = !enforce || outcome === "keep" ?
+        item.claim : "Insufficient verified evidence for this claim.";
+      document.querySelector("#trace").textContent = JSON.stringify({
+        status: item.probabilities ? "illustrative_fixture" : "illustrative_unavailable",
+        policy_version: "demo-v1", threshold,
+        probabilities: item.probabilities, suggested_action: outcome,
+        answer_changed_in_preview: enforce && outcome !== "keep"
+      }, null, 2);
+    }
+    checkPolicy();
+    ["#scenario", "#threshold", "#enforce"].forEach(selector =>
+      document.querySelector(selector).addEventListener("input", render));
+    render();
+  </script>
+</body>
+</html>

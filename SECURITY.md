@@ -28,5 +28,17 @@ Before any shared deployment, add and verify:
 
 The default Ollama configuration keeps inference local. Selecting an OpenAI-compatible remote URL sends prompts or document chunks to that endpoint; its privacy and retention policy then applies.
 
+`RAG_JEV_MODE=observe` independently enables TypeSafe's hosted Jev API. It sends generated claims
+and the text of their actual cited excerpts, including sensitive content if it occurs in those
+excerpts. Observation excludes uncited passages from the request state. `RAG_JEV_MODE=repair`
+also submits alternative passages already retrieved for the same question part, individually,
+when looking for replacement citations. Claim text and the retrieved ledger are preserved;
+citations change only after a fresh support check passes the threshold. Filenames, credentials,
+and passages retrieved only for other question parts remain excluded from each check.
+Keep `TYPESAFE_API_KEY` in the Git-ignored `.env` or environment. Audit records expose sanitized
+status errors rather than remote error bodies. They are rendered as plain text in the browser.
+Observation does not filter answers. Citation repair does not rewrite claims or establish that
+the answer is true, complete, or relevant; Jev judgments are not a security boundary.
+
 Retrieved documents are untrusted input. The application includes prompt-injection guidance, but model instructions are not a security boundary. Never grant model output authority to execute commands or perform external actions without separate validation and authorization.
 

@@ -600,6 +600,16 @@
     }
 
     .score-fill { display: block; height: 100%; background: var(--cobalt); }
+    .audit-panel { margin: 1.75rem 0; padding: 1.25rem; border: 1px solid var(--line); }
+    .audit-panel h3 { margin: 0; font-family: var(--display); }
+    .audit-note { color: var(--slate); font-size: .85rem; }
+    .claim-audit { padding: 1rem 0; border-top: 1px solid var(--line); }
+    .claim-audit p { margin: .45rem 0; overflow-wrap: anywhere; }
+    .audit-action { font: 700 .8rem/1.5 var(--utility); color: var(--cobalt); }
+    .audit-action[data-action="keep"] { color: var(--teal); }
+    .audit-action[data-action="withhold"] { color: #b04727; }
+    .claim-audit summary { cursor: pointer; font-size: .85rem; }
+    .claim-audit pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; }
 
     .page-footer {
       display: flex;
@@ -626,7 +636,7 @@
     @keyframes pulse { 50% { opacity: .35; transform: scale(.78); } }
 
     @media (max-width: 900px) {
-      .workspace { grid-template-columns: 1fr; }
+      .workspace { grid-template-columns: minmax(0, 1fr); }
       .library-panel { order: 0; }
       .query-panel { order: 1; }
       .hero { grid-template-columns: 1fr; gap: 1.5rem; }
@@ -643,7 +653,7 @@
       .hero h1 { font-size: clamp(3.25rem, 17vw, 5rem); }
       .ask-row, .evidence-header, .page-footer { align-items: stretch; flex-direction: column; }
       .ask-row .primary-action { width: 100%; min-width: 0; }
-      .evidence-item { grid-template-columns: 1fr; gap: .7rem; }
+      .evidence-item { grid-template-columns: minmax(0, 1fr); gap: .7rem; }
       .evidence-data { display: grid; grid-template-columns: auto 1fr; gap: .7rem; align-items: center; }
       .score-track { margin: 0; }
     }
@@ -722,6 +732,13 @@
             <h2 id="answer-title" class="result-label">Grounded answer</h2>
             <div id="answer" class="answer"></div>
 
+            <section id="citation-audit" class="audit-panel" aria-labelledby="audit-title" hidden>
+              <h3 id="audit-title">Claim checks · Jev observer</h3>
+              <p id="audit-note" class="audit-note">Claims and their cited excerpts are sent to TypeSafe.
+                These estimates leave the answer unchanged. The threshold is experimental.</p>
+              <div id="audits"></div>
+            </section>
+
             <div class="evidence-header">
               <div>
                 <span class="evidence-kicker">Citation ledger</span>
@@ -736,7 +753,7 @@
     </div>
 
     <footer class="page-footer">
-      <span>Documents and vectors stay on this machine with local providers.</span>
+      <span id="privacy-state">Documents and vectors stay on this machine with local providers.</span>
       <span>Context Foundry · Evidence before answers</span>
     </footer>
   </main>
@@ -752,6 +769,8 @@
     const clearButton = document.querySelector('#clear-documents');
     const selectionCount = document.querySelector('#selection-count');
     const fileInput = document.querySelector('#file');
+    const auditPanel = document.querySelector('#citation-audit');
+    const auditList = document.querySelector('#audits');
     let indexedDocuments = [];
 
     async function request(url, options = {}) {
@@ -854,6 +873,13 @@
       try {
         const health = await request('/health');
         providerLabel.textContent = `${health.embedding_provider} embeddings · ${health.chat_provider} chat`;
+        if (health.jev_mode === 'observe' || health.jev_mode === 'repair') {
+          providerLabel.textContent += health.jev_mode === 'repair' ? ' · Jev citation repair' : ' · Jev observer';
+          document.querySelector('#privacy-state').textContent =
+            health.jev_mode === 'repair'
+              ? 'Vectors stay local. Jev repair checks send retrieved excerpts to TypeSafe.'
+              : 'Vectors stay local. Jev claim audits send cited excerpts to TypeSafe.';
+        }
         providerState.dataset.ready = 'true';
       } catch {
         providerLabel.textContent = 'Provider status unavailable';
@@ -883,6 +909,59 @@
       }
     });
 
+    function renderAudits(data) {
+      auditList.replaceChildren();
+      auditPanel.hidden = data.audit_mode === 'off';
+      if (auditPanel.hidden) return;
+      const repairing = data.audit_mode === 'repair';
+      document.querySelector('#audit-title').textContent = repairing
+        ? 'Claim checks · Jev citation repair' : 'Claim checks · Jev observer';
+      document.querySelector('#audit-note').textContent = repairing
+        ? 'Claims and retrieved excerpts are sent to TypeSafe. Verified replacements may change citations; claim text stays unchanged. The threshold is experimental.'
+        : 'Claims and their cited excerpts are sent to TypeSafe. These estimates leave the answer unchanged. The threshold is experimental.';
+      if (!data.audits.length) {
+        auditList.textContent = 'No generated claims to audit.';
+        return;
+      }
+      const actions = {keep: 'Keep', withhold: 'Withhold', review: 'Needs review', unavailable: 'Unavailable'};
+      for (const audit of data.audits) {
+        const item = document.createElement('article');
+        item.className = 'claim-audit';
+        const claim = document.createElement('p');
+        claim.textContent = audit.text + ' ' + audit.citations.map(id => '[' + id + ']').join(' ');
+        const action = document.createElement('p');
+        action.className = 'audit-action';
+        action.dataset.action = audit.suggested_action;
+        action.textContent = 'Claim ' + audit.claim_id + ' · Suggested action: ' + actions[audit.suggested_action];
+        const probabilities = document.createElement('p');
+        if (audit.assessment) {
+          const values = audit.assessment.probabilities;
+          probabilities.textContent = 'Support ' + (values.supported * 100).toFixed(1) + '% · ' +
+            'Contradiction ' + (values.contradicted * 100).toFixed(1) + '% · ' +
+            'Insufficient evidence ' + (values.insufficient * 100).toFixed(1) + '%';
+        } else {
+          probabilities.textContent = 'Audit unavailable: ' + audit.error;
+        }
+        const details = document.createElement('details');
+        const summary = document.createElement('summary');
+        summary.textContent = 'Inspect audit details';
+        const trace = document.createElement('pre');
+        trace.textContent = JSON.stringify(audit, null, 2);
+        details.append(summary, trace);
+        item.append(action, claim, probabilities, details);
+        if (audit.original) {
+          const repair = document.createElement('p');
+          const original = audit.original.citations.map(id => '[' + id + ']').join(' ');
+          const current = audit.citations.map(id => '[' + id + ']').join(' ');
+          repair.textContent = original === current
+            ? 'Original citation retained; no verified replacement.'
+            : 'Citation repaired: ' + original + ' → ' + current + '.';
+          item.insertBefore(repair, details);
+        }
+        auditList.append(item);
+      }
+    }
+
     document.querySelector('#query-form').addEventListener('submit', async (event) => {
       event.preventDefault();
       const selected = selectedDocumentIds();
@@ -905,6 +984,7 @@
         });
         clearInterval(timer);
         answer.innerHTML = data.answer_html;
+        renderAudits(data);
         citations.replaceChildren();
 
         data.citations.forEach((item, index) => {
@@ -941,7 +1021,7 @@
         });
 
         result.hidden = false;
-        setStatus(`Answer grounded in ${data.citations.length} retrieved passage${data.citations.length === 1 ? '' : 's'}.`);
+        setStatus(`Answer ready with ${data.citations.length} retrieved passage${data.citations.length === 1 ? '' : 's'}.`);
         const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         result.scrollIntoView({behavior:reducedMotion ? 'auto' : 'smooth', block:'start'});
       } catch (error) {
