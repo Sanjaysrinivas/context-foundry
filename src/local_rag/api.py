@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import uvicorn
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from local_rag.config import Settings
 from local_rag.documents import flow_diagram_markdown
-from local_rag.domain import ProviderError, RAGError, SearchResult
+from local_rag.domain import ClaimAudit, ProviderError, RAGError, SearchResult
 from local_rag.factory import build_service
 from local_rag.service import RAGService
 
@@ -42,6 +42,8 @@ class QueryResponse(BaseModel):
     answer: str
     answer_html: str
     citations: list[CitationResponse]
+    audit_mode: Literal["off", "observe", "repair"] = "off"
+    audits: list[ClaimAudit] = Field(default_factory=list)
 
 
 class DocumentResponse(BaseModel):
@@ -119,6 +121,7 @@ def create_app(settings: Settings | None = None, service: RAGService | None = No
             "status": "ok",
             "chat_provider": configured.chat_provider,
             "embedding_provider": configured.embedding_provider,
+            "jev_mode": configured.jev_mode,
         }
 
     @app.post("/api/documents")
@@ -155,11 +158,16 @@ def create_app(settings: Settings | None = None, service: RAGService | None = No
 
     @app.post("/api/query", response_model=QueryResponse)
     async def query(request: QueryRequest) -> QueryResponse:
-        result = await active_service().ask(request.question, request.document_ids or None)
+        active = active_service()
+        result = await active.ask(request.question, request.document_ids or None)
         return QueryResponse(
             answer=result.text,
             answer_html=MARKDOWN.render(result.text),
             citations=[_citation_response(item) for item in result.citations],
+            audit_mode=("repair" if active.repair_citations else "observe")
+            if active.auditor is not None
+            else "off",
+            audits=result.audits,
         )
 
     @app.post("/api/retrieve", response_model=list[CitationResponse])

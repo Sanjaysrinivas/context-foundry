@@ -87,6 +87,39 @@ The browser interface is organized as an evidence desk: manage and select source
 
 The application stores vectors beneath `data/qdrant`. Both `.env` and `data/` are ignored by Git.
 
+## Optional Jev experiment
+
+Jev can check whether each generated claim follows from its actual cited excerpts. It runs after
+structured generation, independently of the chat and embedding providers. Enable the observer in
+your local `.env`:
+
+```dotenv
+RAG_JEV_MODE=observe
+TYPESAFE_API_KEY=your-local-key
+```
+
+Restart the app with `uv run --env-file .env local-rag`. The answer now includes a **Claim checks**
+panel with support, contradiction, and insufficient-evidence probabilities, a suggested action,
+and expandable audit details. At the default experimental threshold of 0.90, Python suggests
+`keep` for high support, `withhold` for high contradiction or insufficient evidence, and `review`
+otherwise. These suggestions leave the answer and citation ledger unchanged. Provider failures
+show `unavailable` and still return the original answer.
+
+For opt-in citation repair, set `RAG_JEV_MODE=repair` and restart. When a claim's original check
+favors insufficient evidence, the app checks alternative passages already retrieved for that
+question part, one at a time in retrieval order. It replaces the citation with the first passage
+whose fresh support check meets the threshold. Claim text and the retrieved ledger stay intact.
+Existing support, contradiction, and unavailable results are retained. If no replacement passes
+or the shared audit budget expires, the original citation remains. Details retain the original
+assessment and every attempted replacement.
+
+Observation sends generated claims and their cited excerpt text to TypeSafe's hosted API.
+Repair also sends alternative retrieved excerpts when testing replacements. Each candidate is
+checked in isolation; passages from other question parts and filenames are excluded.
+The default remains `off`, with no Jev network calls. Review your documents before enabling it.
+See the [design study](docs/jev-integration-study.md), [API notes](docs/jev-api-research.md), and
+[measured tests and replay instructions](docs/jev-testing.md).
+
 ## API
 
 Upload a document:
@@ -122,7 +155,9 @@ The response keeps generation and retrieval separately inspectable:
       "score": 0.82,
       "source_sha256": "0123456789abcdef..."
     }
-  ]
+  ],
+  "audit_mode": "off",
+  "audits": []
 }
 ```
 
@@ -131,6 +166,14 @@ and citation `text_html` are their server-rendered browser representations; raw 
 output and retrieved passages is disabled before rendering. Fenced flow diagrams extracted from
 PDFs are presented to both the reader and grounded generator as readable steps while their
 original citation `text` remains unchanged.
+
+With Jev enabled, `audit_mode` is `observe` or `repair` and `audits` contains one record per claim.
+Its citation IDs refer to the numbered response ledger. Records include the validated Choice
+distribution, suggested action, model, threshold, elapsed time, excerpt hashes, and request usage.
+Claims sharing the same cited set share a request ID and its token counts; deduplicate request IDs
+when summing usage. Repair records add `original`, `repair_attempts`, and `repair_policy_version`;
+deduplicate request IDs across those nested checks and the final record too. No-claim abstentions
+produce an empty audit list. `/health` also exposes `jev_mode`.
 
 Use `POST /api/retrieve` with the same request body to inspect retrieval without generation. Delete one document with `DELETE /api/documents/{document_id}`, or clear the collection with `DELETE /api/documents`. A full clear and re-index is required after changing embedding models because vectors from different embedding spaces cannot be mixed.
 
@@ -173,6 +216,11 @@ To swap embeddings instead, change `RAG_EMBEDDING_PROVIDER` and `RAG_EMBEDDING_M
 | `RAG_SCORE_THRESHOLD` | `0.15` | minimum score for the dense retrieval leg; BM25 ranks independently |
 | `RAG_MAX_UPLOAD_MB` | `10` | upload boundary |
 | `RAG_REQUEST_TIMEOUT` | `120` | model request timeout in seconds |
+| `RAG_JEV_MODE` | `off` | `observe` for hosted checks; `repair` also verifies replacement citations |
+| `TYPESAFE_API_KEY` | empty | secret used only for Jev requests |
+| `RAG_JEV_MODEL` | `jev-1.13.0` | pinned Jev model |
+| `RAG_JEV_TIMEOUT` | `5` | total audit budget per question part in seconds; at most three parts |
+| `RAG_JEV_THRESHOLD` | `0.90` | experimental action threshold; greater than 0.5 and at most 1 |
 
 ## Project layout
 
@@ -214,6 +262,7 @@ Development follows `feature/* → dev → main`. `dev` is the default integrati
 - Answers must cover each requested part from cited context, explicitly identify unsupported parts, and avoid filling gaps with model background knowledge.
 - Upload extension and size are validated, and uploaded filenames are never used as filesystem destinations.
 - Choosing a remote compatible endpoint changes the privacy boundary. Review that provider before sending documents.
+- Enabling Jev sends claims and excerpts to TypeSafe; repair mode may also send alternative retrieved passages. Its judgments do not establish factual correctness, answer completeness, or injection safety.
 - This demo has no authentication and binds to `127.0.0.1`. Do not expose it directly to a network.
 
 See [SECURITY.md](SECURITY.md) for reporting and deployment guidance.
@@ -228,7 +277,10 @@ See [SECURITY.md](SECURITY.md) for reporting and deployment guidance.
 | GitHub Actions and Pages | $0 within the public-repository allowances |
 | Cloud infrastructure | not used |
 
-Pulumi, AWS, hosted model APIs, authentication, background workers, neural reranking, and multi-user tenancy are deferred. They add cost or operational weight without improving this local portfolio baseline. The [architecture](https://sanjaysrinivas.github.io/context-foundry/) lists the concrete triggers for each upgrade.
+The optional Jev observer uses a paid hosted API; it is outside the zero-cost local default.
+Pulumi, AWS, authentication, background workers, neural reranking, and multi-user tenancy are
+deferred. The [architecture](https://sanjaysrinivas.github.io/context-foundry/) lists the concrete
+triggers for each upgrade.
 
 ## Evaluation and limitations
 
