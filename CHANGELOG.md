@@ -4,6 +4,27 @@ All notable changes are generated from Conventional Commits by python-semantic-r
 
 <!-- version list -->
 
+## v1.1.0 (2026-10-01)
+
+### Chores
+
+- **release**: Sync lockfile version
+  ([`3a3e87d`](https://github.com/Sanjaysrinivas/context-foundry/commit/3a3e87dbd3c05b2db6d73220ab06ea4b97f524f0))
+
+### Documentation
+
+- Align guides with workspace overhaul
+  ([`493e952`](https://github.com/Sanjaysrinivas/context-foundry/commit/493e9527e3ef0aa10180fad2f8f1ac03bc82b82c))
+
+### Features
+
+- **jev**: Audit claims and repair citations
+  ([`27f6045`](https://github.com/Sanjaysrinivas/context-foundry/commit/27f60455f1a142b946151bb0f09c01298a97dd2b))
+
+- **ui**: Overhaul cited answer workflow
+  ([`f56daf4`](https://github.com/Sanjaysrinivas/context-foundry/commit/f56daf4ba84d98d208029aefc68863cbdb62c6b3))
+
+
 ## v1.0.1 (2026-08-23)
 
 ### Bug Fixes
