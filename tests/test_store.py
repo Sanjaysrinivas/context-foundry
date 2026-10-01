@@ -2,7 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from local_rag.domain import Chunk
+from local_rag.documents import chunk_pages
+from local_rag.domain import Chunk, Page
 from local_rag.store import QdrantVectorStore, _reciprocal_rank_fusion, lexical_tokens
 
 
@@ -81,4 +82,23 @@ def test_local_qdrant_round_trip(tmp_path: Path) -> None:
 
     store.clear()
     assert store.search([1.0, 0.0], "local", limit=1, threshold=0.1) == []
+    store.replace([chunk], [[1.0, 0.0, 0.0]])
+    assert [document.document_id for document in store.list_documents()] == ["doc-1"]
     store.close()
+
+
+@pytest.mark.integration
+def test_document_page_count_survives_storage_with_blank_pages(tmp_path: Path) -> None:
+    store = QdrantVectorStore(tmp_path / "qdrant", "test-pages")
+    pages = [
+        Page("report.pdf", 1, ""),
+        Page("report.pdf", 2, "Evidence"),
+        Page("report.pdf", 3, ""),
+    ]
+    chunks = chunk_pages(pages, chunk_size=50, overlap=0)
+    try:
+        store.replace(chunks, [[1.0, 0.0]])
+        assert store.list_documents()[0].pages == 3
+        assert store.search([1.0, 0.0], "Evidence", 1, 0.1)[0].page == 2
+    finally:
+        store.close()

@@ -27,12 +27,20 @@ from local_rag.providers import ChatProvider, EmbeddingProvider, JevAuditor
 from local_rag.store import VectorStore, _lexical_terms, lexical_tokens
 
 QUERY_BOUNDARY_RE = re.compile(
-    r"(?:[;?]\s+|,\s*(?=(?:(?:then|also)\s+)?"
+    r"(?:[;?]\s+(?=(?:(?:then|also)\s+)?"
+    r"(?:explain|describe|compare|list|specify|identify|summarize|why|how|what|which|who|when|where)\b)"
+    r"|,\s*(?=(?:(?:then|also)\s+)?"
     r"(?:explain|describe|compare|list|specify|identify|summarize|why|how|what|which|who|when|where)\b)"
     r"|\s+(?:and|then|also)\s+(?="
     r"(?:explain|describe|compare|list|specify|identify|summarize|why|how|what|which|who|when|where)\b))",
     re.IGNORECASE,
 )
+QUERY_PREAMBLE_RE = re.compile(r"^(?:according to|based on|using|from|within|in)\b", re.IGNORECASE)
+QUERY_ACTION_RE = re.compile(
+    r"\b(?:explain|describe|compare|list|specify|identify|summarize|why|how|what|which|who|when|where)\b",
+    re.IGNORECASE,
+)
+ANSWER_FORMAT_RE = re.compile(r"\?\s+(?:answer|respond|write|return|use)\b.*$", re.IGNORECASE)
 UNICODE_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
 CLAIM_PREFIX_RE = re.compile(r"^(?:[-*+]\s+|\d+[.)]\s+)")
 NO_EVIDENCE_RESPONSE = "I could not find enough relevant evidence in the indexed documents."
@@ -222,7 +230,8 @@ class RAGService:
                         local_to_global = {number: number for number in citation_numbers.values()}
                     audits.extend(checked)
                 text = _render_grounded_response(draft, local_to_global, query)
-            answers.append(f"## {query}\n\n{text}" if len(queries) > 1 else text)
+            title = _answer_section_title(query)
+            answers.append(f"## {title}\n\n{text}" if len(queries) > 1 else text)
 
         text = "\n\n".join(answers)
         matches = [match for match, _query in evidence]
@@ -294,7 +303,24 @@ class RAGService:
 def _retrieval_queries(question: str) -> list[str]:
     parts = [part.strip(" ,.;:?") for part in QUERY_BOUNDARY_RE.split(question)]
     useful_parts = [part for part in parts if len(part.split()) >= 3]
+    if (
+        len(useful_parts) > 1
+        and QUERY_PREAMBLE_RE.match(useful_parts[0])
+        and not QUERY_ACTION_RE.search(useful_parts[0])
+    ):
+        useful_parts[1] = f"{useful_parts[0]}, {useful_parts[1]}"
+        useful_parts = useful_parts[1:]
     return useful_parts[:3] if len(useful_parts) > 1 else [question]
+
+
+def _answer_section_title(query: str) -> str:
+    title = ANSWER_FORMAT_RE.sub("", query).strip(" ,.;:?")
+    if "," in title:
+        preamble, candidate = title.split(",", 1)
+        if QUERY_PREAMBLE_RE.match(preamble) and QUERY_ACTION_RE.search(candidate):
+            title = candidate.strip()
+    title = title[:1].upper() + title[1:]
+    return f"{title}?" if title and QUERY_ACTION_RE.match(title) else title
 
 
 def _interleave_unique(

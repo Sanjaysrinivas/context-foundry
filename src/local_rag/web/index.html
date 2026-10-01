@@ -4,1056 +4,116 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>Context Foundry · Evidence desk</title>
-  <style>
-    :root {
-      --paper: #f3f6f8;
-      --surface: #fbfcfe;
-      --carbon: #162033;
-      --cobalt: #275dad;
-      --orange: #f0643b;
-      --teal: #207a6b;
-      --slate: #667085;
-      --line: #cbd3dc;
-      --soft-blue: #e7eef8;
-      --soft-orange: #fff0ea;
-      --shadow: 4px 4px 0 var(--carbon);
-      --display: Bahnschrift, "Arial Narrow", "Aptos Display", sans-serif;
-      --body: Aptos, "Segoe UI", sans-serif;
-      --reading: "Sitka Text", Charter, Georgia, serif;
-      --utility: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
-    }
-
-    * { box-sizing: border-box; }
-
-    html { scroll-behavior: smooth; }
-
-    body {
-      margin: 0;
-      min-width: 320px;
-      min-height: 100vh;
-      background: var(--paper);
-      color: var(--carbon);
-      font: 16px/1.55 var(--body);
-    }
-
-    button, input, textarea { font: inherit; }
-
-    button, input[type="file"], input[type="checkbox"] { cursor: pointer; }
-
-    button:focus-visible,
-    input:focus-visible,
-    textarea:focus-visible {
-      outline: 3px solid var(--orange);
-      outline-offset: 3px;
-    }
-
-    button:disabled { cursor: not-allowed; opacity: .48; }
-
-    [hidden] { display: none !important; }
-
-    .skip-link {
-      position: fixed;
-      z-index: 20;
-      top: .75rem;
-      left: .75rem;
-      padding: .6rem .8rem;
-      background: var(--carbon);
-      color: white;
-      transform: translateY(-180%);
-    }
-
-    .skip-link:focus { transform: translateY(0); }
-
-    .shell {
-      width: min(100% - 2rem, 1380px);
-      margin: 0 auto;
-      padding: 1.25rem 0 4rem;
-    }
-
-    .masthead {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      padding-bottom: 1rem;
-      border-bottom: 2px solid var(--carbon);
-      animation: enter .45s ease-out both;
-    }
-
-    .brand {
-      display: flex;
-      align-items: baseline;
-      gap: .7rem;
-      margin: 0;
-      font: 700 1rem/1 var(--display);
-      letter-spacing: .08em;
-      text-transform: uppercase;
-    }
-
-    .brand-mark {
-      display: inline-grid;
-      width: 2rem;
-      height: 2rem;
-      place-items: center;
-      background: var(--carbon);
-      color: var(--surface);
-      font: 700 .78rem/1 var(--utility);
-      letter-spacing: 0;
-    }
-
-    .provider-state {
-      display: flex;
-      align-items: center;
-      gap: .55rem;
-      color: var(--slate);
-      font: 700 .72rem/1.2 var(--utility);
-      letter-spacing: .04em;
-      text-transform: uppercase;
-    }
-
-    .provider-dot {
-      width: .68rem;
-      height: .68rem;
-      border: 2px solid var(--surface);
-      border-radius: 50%;
-      background: var(--slate);
-      box-shadow: 0 0 0 1px var(--carbon);
-    }
-
-    .provider-state[data-ready="true"] .provider-dot { background: var(--teal); }
-
-    .hero {
-      display: grid;
-      grid-template-columns: minmax(0, 1.55fr) minmax(17rem, .55fr);
-      gap: clamp(2rem, 7vw, 8rem);
-      align-items: end;
-      padding: clamp(3rem, 8vw, 7rem) 0 clamp(2.5rem, 6vw, 5rem);
-      animation: enter .55s .08s ease-out both;
-    }
-
-    .hero h1 {
-      max-width: 11ch;
-      margin: 0;
-      font: 750 clamp(3.6rem, 9.5vw, 8.6rem)/.84 var(--display);
-      letter-spacing: -.065em;
-      text-transform: uppercase;
-    }
-
-    .hero h1 span {
-      display: block;
-      color: var(--cobalt);
-    }
-
-    .hero-note {
-      padding: 1rem 0 0 1.1rem;
-      border-left: 5px solid var(--orange);
-    }
-
-    .hero-note p { margin: 0; color: var(--slate); }
-
-    .hero-note strong {
-      display: block;
-      margin-bottom: .45rem;
-      color: var(--carbon);
-      font: 700 .76rem/1.2 var(--utility);
-      letter-spacing: .08em;
-      text-transform: uppercase;
-    }
-
-    .workspace {
-      display: grid;
-      grid-template-columns: minmax(18rem, 22rem) minmax(0, 1fr);
-      gap: clamp(1rem, 2vw, 1.75rem);
-      align-items: start;
-      animation: enter .55s .16s ease-out both;
-    }
-
-    .panel {
-      border: 2px solid var(--carbon);
-      background: var(--surface);
-      box-shadow: var(--shadow);
-    }
-
-    .panel-heading {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      min-height: 3.25rem;
-      padding: .8rem 1rem;
-      border-bottom: 2px solid var(--carbon);
-      background: var(--soft-blue);
-    }
-
-    .panel-heading h2 {
-      margin: 0;
-      font: 750 1rem/1.1 var(--display);
-      letter-spacing: .045em;
-      text-transform: uppercase;
-    }
-
-    .selection-count,
-    .format-note {
-      color: var(--slate);
-      font: 700 .69rem/1.2 var(--utility);
-      text-transform: uppercase;
-    }
-
-    .panel-body { padding: 1rem; }
-
-    .field-label {
-      display: block;
-      margin-bottom: .45rem;
-      font-weight: 750;
-    }
-
-    .field-help {
-      margin: .4rem 0 0;
-      color: var(--slate);
-      font-size: .84rem;
-    }
-
-    .file-input {
-      width: 100%;
-      padding: .45rem;
-      border: 1px solid var(--line);
-      background: var(--paper);
-      color: var(--slate);
-      font-size: .82rem;
-    }
-
-    .file-input::file-selector-button {
-      margin-right: .65rem;
-      padding: .62rem .72rem;
-      border: 1px solid var(--carbon);
-      background: var(--surface);
-      color: var(--carbon);
-      font-weight: 750;
-    }
-
-    .primary-action {
-      width: 100%;
-      margin-top: .85rem;
-      padding: .82rem 1rem;
-      border: 2px solid var(--carbon);
-      background: var(--cobalt);
-      color: white;
-      box-shadow: 3px 3px 0 var(--carbon);
-      font-weight: 800;
-    }
-
-    .primary-action:not(:disabled):active {
-      transform: translate(2px, 2px);
-      box-shadow: 1px 1px 0 var(--carbon);
-    }
-
-    .library-divider {
-      margin: 1.15rem -1rem 0;
-      border: 0;
-      border-top: 1px solid var(--line);
-    }
-
-    .library-label {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 1rem;
-      margin: .85rem 0 .55rem;
-    }
-
-    .library-label h3 {
-      margin: 0;
-      font-size: .82rem;
-      letter-spacing: .06em;
-      text-transform: uppercase;
-    }
-
-    .text-action {
-      width: auto;
-      padding: 0;
-      border: 0;
-      background: transparent;
-      color: var(--cobalt);
-      font: 750 .76rem/1 var(--body);
-      text-decoration: underline;
-      text-underline-offset: .18rem;
-    }
-
-    .document-list { display: grid; gap: .55rem; }
-
-    .empty-library {
-      margin: 0;
-      padding: 1rem;
-      border: 1px dashed var(--slate);
-      background: var(--paper);
-      color: var(--slate);
-      font-size: .9rem;
-    }
-
-    .document {
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      gap: .7rem;
-      align-items: start;
-      padding: .78rem;
-      border: 1px solid var(--line);
-      background: white;
-    }
-
-    .document:has(input:checked) { border-left: 4px solid var(--teal); }
-
-    .document input { width: 1rem; height: 1rem; margin: .16rem 0 0; accent-color: var(--teal); }
-
-    .document label { min-width: 0; font-size: .9rem; font-weight: 750; overflow-wrap: anywhere; }
-
-    .document small {
-      display: block;
-      margin-top: .18rem;
-      color: var(--slate);
-      font: .68rem/1.35 var(--utility);
-      text-transform: uppercase;
-    }
-
-    .remove-document {
-      width: auto;
-      padding: .1rem;
-      border: 0;
-      background: transparent;
-      color: var(--slate);
-      font-size: .75rem;
-      font-weight: 750;
-    }
-
-    .remove-document:hover { color: #a32d24; }
-
-    .query-panel .panel-body { padding: clamp(1rem, 3vw, 2rem); }
-
-    .question-field {
-      width: 100%;
-      min-height: 9rem;
-      resize: vertical;
-      padding: 1rem;
-      border: 2px solid var(--carbon);
-      border-radius: 0;
-      background: white;
-      color: var(--carbon);
-      font-size: clamp(1.08rem, 2vw, 1.35rem);
-      line-height: 1.45;
-    }
-
-    .question-field::placeholder { color: #8993a1; }
-
-    .ask-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      margin-top: .85rem;
-    }
-
-    .ask-row .primary-action { width: auto; min-width: 14rem; margin: 0; }
-
-    .privacy-note {
-      margin: 0;
-      color: var(--slate);
-      font: .7rem/1.4 var(--utility);
-      text-transform: uppercase;
-    }
-
-    .operation-bar {
-      display: flex;
-      align-items: center;
-      gap: .7rem;
-      min-height: 3.2rem;
-      margin-top: 1.3rem;
-      padding: .75rem 1rem;
-      border-top: 1px solid var(--line);
-      border-bottom: 1px solid var(--line);
-      color: var(--slate);
-    }
-
-    .operation-mark {
-      width: .7rem;
-      height: .7rem;
-      flex: 0 0 auto;
-      border-radius: 50%;
-      background: var(--teal);
-    }
-
-    .operation-bar[data-tone="working"] .operation-mark {
-      background: var(--orange);
-      animation: pulse 1s ease-in-out infinite;
-    }
-
-    .operation-bar[data-tone="error"] { color: #8e241c; background: var(--soft-orange); }
-    .operation-bar[data-tone="error"] .operation-mark { background: #b53026; }
-
-    #status { margin: 0; font-size: .88rem; font-weight: 650; }
-
-    .result {
-      margin-top: 2rem;
-      animation: result-enter .35s ease-out both;
-    }
-
-    .result-label,
-    .evidence-kicker {
-      display: block;
-      margin: 0 0 .65rem;
-      color: var(--cobalt);
-      font: 750 .72rem/1 var(--utility);
-      letter-spacing: .09em;
-      text-transform: uppercase;
-    }
-
-    .answer {
-      max-width: 72ch;
-      margin: 0;
-      color: var(--carbon);
-      font: clamp(.98rem, .3vw + .92rem, 1.075rem)/1.68 var(--reading);
-    }
-
-    .answer > :first-child { margin-top: 0; }
-    .answer > :last-child { margin-bottom: 0; }
-    .answer p, .answer ul, .answer ol, .answer pre, .answer blockquote, .answer table {
-      margin: 0 0 1rem;
-    }
-    .answer h1, .answer h2, .answer h3, .answer h4 {
-      margin: 1.5rem 0 .65rem;
-      font-family: var(--display);
-      line-height: 1.15;
-      letter-spacing: -.02em;
-    }
-    .answer h1 { font-size: 1.4rem; }
-    .answer h2 { font-size: 1.2rem; }
-    .answer h3, .answer h4 { font-size: 1.05rem; }
-    .answer ul, .answer ol { padding-left: 1.5rem; }
-    .answer li + li { margin-top: .35rem; }
-    .answer code {
-      padding: .12rem .3rem;
-      background: var(--paper);
-      font: .84em/1.4 var(--utility);
-      overflow-wrap: anywhere;
-    }
-    .answer pre {
-      overflow-x: auto;
-      padding: 1rem;
-      border-left: 4px solid var(--cobalt);
-      background: var(--paper);
-    }
-    .answer pre code { padding: 0; background: transparent; }
-    .answer blockquote {
-      padding: .15rem 0 .15rem 1rem;
-      border-left: 4px solid var(--orange);
-      color: var(--slate);
-    }
-    .answer table {
-      display: block;
-      width: 100%;
-      overflow-x: auto;
-      border-collapse: collapse;
-      font-size: .9em;
-    }
-    .answer th, .answer td {
-      padding: .55rem .7rem;
-      border: 1px solid var(--line);
-      text-align: left;
-      vertical-align: top;
-    }
-    .answer th { background: var(--paper); font-family: var(--utility); }
-    .answer a { color: var(--cobalt); text-underline-offset: .18rem; }
-
-    .evidence-header {
-      display: flex;
-      align-items: end;
-      justify-content: space-between;
-      gap: 1rem;
-      margin-top: clamp(2.5rem, 6vw, 4.5rem);
-      padding-bottom: .8rem;
-      border-bottom: 2px solid var(--carbon);
-    }
-
-    .evidence-header h3 {
-      margin: 0;
-      font: 750 clamp(1.8rem, 4vw, 3rem)/1 var(--display);
-      letter-spacing: -.03em;
-      text-transform: uppercase;
-    }
-
-    .evidence-header p { max-width: 26rem; margin: 0; color: var(--slate); font-size: .86rem; }
-
-    .evidence-ledger {
-      position: relative;
-      display: grid;
-      gap: 0;
-      margin-top: 1rem;
-      padding-left: clamp(2.6rem, 7vw, 5.3rem);
-    }
-
-    .evidence-ledger::before {
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      left: clamp(1.18rem, 3vw, 2.5rem);
-      width: 4px;
-      background: var(--orange);
-      content: "";
-    }
-
-    .evidence-item {
-      position: relative;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(7rem, 10rem);
-      gap: 1.2rem;
-      padding: 1.25rem 0;
-      border-bottom: 1px solid var(--line);
-    }
-
-    .evidence-index {
-      position: absolute;
-      top: 1.15rem;
-      left: calc(clamp(2.6rem, 7vw, 5.3rem) * -1);
-      display: grid;
-      width: clamp(2.4rem, 5vw, 4.4rem);
-      height: 2rem;
-      place-items: center;
-      border: 2px solid var(--carbon);
-      background: var(--surface);
-      color: var(--carbon);
-      font: 800 .75rem/1 var(--utility);
-    }
-
-    .evidence-source {
-      margin-bottom: .4rem;
-      font-weight: 800;
-      overflow-wrap: anywhere;
-    }
-
-    .evidence-text { margin: 0; color: #3e4959; }
-    .evidence-text > :first-child { margin-top: 0; }
-    .evidence-text > :last-child { margin-bottom: 0; }
-    .evidence-text p, .evidence-text ul, .evidence-text ol,
-    .evidence-text pre, .evidence-text blockquote, .evidence-text table {
-      margin: 0 0 .75rem;
-    }
-    .evidence-text ul, .evidence-text ol { padding-left: 1.3rem; }
-    .evidence-text code { font: .88em/1.4 var(--utility); overflow-wrap: anywhere; }
-    .evidence-text pre { overflow-x: auto; padding: .75rem; background: var(--paper); }
-    .evidence-text table {
-      display: block;
-      width: 100%;
-      overflow-x: auto;
-      border-collapse: collapse;
-    }
-    .evidence-text th, .evidence-text td {
-      padding: .4rem .55rem;
-      border: 1px solid var(--line);
-      text-align: left;
-      vertical-align: top;
-    }
-    .evidence-text th { background: var(--paper); font-family: var(--utility); }
-
-    .evidence-flow > ol {
-      display: grid;
-      gap: .65rem;
-      margin: 0;
-      padding: 0;
-      list-style: none;
-      counter-reset: proof-step;
-    }
-
-    .evidence-flow > ol > li {
-      position: relative;
-      min-height: 2.5rem;
-      padding: .55rem .75rem .55rem 3rem;
-      border-left: 2px solid var(--cobalt);
-      background: var(--paper);
-      counter-increment: proof-step;
-    }
-
-    .evidence-flow > ol > li::before {
-      position: absolute;
-      top: .5rem;
-      left: .65rem;
-      color: var(--cobalt);
-      content: counter(proof-step, decimal-leading-zero);
-      font: 800 .72rem/1.5 var(--utility);
-    }
-
-    .evidence-flow > ol > li { font-weight: 750; }
-    .evidence-flow ul { margin: .45rem 0 0; padding-left: 1.15rem; font-weight: 400; }
-    .evidence-flow li + li { margin-top: .25rem; }
-
-    .evidence-data {
-      align-self: start;
-      color: var(--slate);
-      font: 700 .68rem/1.5 var(--utility);
-      letter-spacing: .04em;
-      text-transform: uppercase;
-    }
-
-    .score-track {
-      display: block;
-      height: .35rem;
-      margin-top: .55rem;
-      background: var(--line);
-    }
-
-    .score-fill { display: block; height: 100%; background: var(--cobalt); }
-    .audit-panel { margin: 1.75rem 0; padding: 1.25rem; border: 1px solid var(--line); }
-    .audit-panel h3 { margin: 0; font-family: var(--display); }
-    .audit-note { color: var(--slate); font-size: .85rem; }
-    .claim-audit { padding: 1rem 0; border-top: 1px solid var(--line); }
-    .claim-audit p { margin: .45rem 0; overflow-wrap: anywhere; }
-    .audit-action { font: 700 .8rem/1.5 var(--utility); color: var(--cobalt); }
-    .audit-action[data-action="keep"] { color: var(--teal); }
-    .audit-action[data-action="withhold"] { color: #b04727; }
-    .claim-audit summary { cursor: pointer; font-size: .85rem; }
-    .claim-audit pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; }
-
-    .page-footer {
-      display: flex;
-      justify-content: space-between;
-      gap: 1rem;
-      margin-top: 3rem;
-      padding-top: 1rem;
-      border-top: 2px solid var(--carbon);
-      color: var(--slate);
-      font: .68rem/1.4 var(--utility);
-      text-transform: uppercase;
-    }
-
-    @keyframes enter {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    @keyframes result-enter {
-      from { opacity: 0; transform: translateY(8px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    @keyframes pulse { 50% { opacity: .35; transform: scale(.78); } }
-
-    @media (max-width: 900px) {
-      .workspace { grid-template-columns: minmax(0, 1fr); }
-      .library-panel { order: 0; }
-      .query-panel { order: 1; }
-      .hero { grid-template-columns: 1fr; gap: 1.5rem; }
-      .hero-note { max-width: 34rem; }
-    }
-
-    @media (max-width: 620px) {
-      .shell { width: min(100% - 1rem, 1380px); padding-top: .6rem; }
-      .masthead { align-items: flex-start; }
-      .brand { gap: .45rem; }
-      .brand span:last-child { display: none; }
-      .provider-state { max-width: 10rem; text-align: right; }
-      .hero { padding: 2.5rem 0; }
-      .hero h1 { font-size: clamp(3.25rem, 17vw, 5rem); }
-      .ask-row, .evidence-header, .page-footer { align-items: stretch; flex-direction: column; }
-      .ask-row .primary-action { width: 100%; min-width: 0; }
-      .evidence-item { grid-template-columns: minmax(0, 1fr); gap: .7rem; }
-      .evidence-data { display: grid; grid-template-columns: auto 1fr; gap: .7rem; align-items: center; }
-      .score-track { margin: 0; }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      html { scroll-behavior: auto; }
-      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
-    }
-  </style>
+  <meta name="description" content="Ask questions about your documents and check each answer against the original page.">
+  <title>Context Foundry · Ask your documents</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script src="/assets/app.js" defer></script>
 </head>
 <body>
-  <a class="skip-link" href="#question">Skip to question</a>
-  <main class="shell">
-    <header class="masthead">
-      <p class="brand"><span class="brand-mark">CF</span><span>Context Foundry</span></p>
-      <div id="provider-state" class="provider-state" data-ready="false">
-        <span class="provider-dot" aria-hidden="true"></span>
-        <span id="provider-label">Checking local providers</span>
+  <svg class="sr-only" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-pages" viewBox="0 0 24 24"><path d="M8 3h9l4 4v13H8zM17 3v5h4M4 7H2v15h13M11 12h7M11 16h5"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 16v5h16v-5"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 5c-3-2-6-2-10-1v15c4-1 7-1 10 1m0-15c3-2 6-2 10-1v15c-4-1-7-1-10 1zm-7 3h4m-4 4h4m6-4h4m-4 4h4"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V3H3v13h5"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 5v2"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.5c0 4.6 2.9 7.7 7.5 9.5 4.6-1.8 7.5-4.9 7.5-9.5V6z"/><path d="m8.5 12 2.2 2.2 4.8-5"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v.2"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v13m-5-5 5 5 5-5M4 17v4h16v-4"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  </svg>
+  <a class="skip-link" href="#question">Skip to your question</a>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a href="/" class="brand" aria-label="Context Foundry home">
+        <span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#i-pages"/></svg></span>
+        <span><span class="brand-name">Context Foundry</span><span class="brand-note">A workspace for your documents</span></span>
+      </a>
+      <div class="topbar-actions">
+        <div id="provider-state" class="connection" data-ready="false"><span class="connection-dot" aria-hidden="true"></span><span id="provider-label">Connecting to workspace</span></div>
+        <span id="audit-state" class="audit-state" data-mode="off" hidden><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span id="audit-state-label">Jev checks on</span></span>
+        <details class="help"><summary>How it works</summary><div class="help-content"><strong>From document to answer.</strong><ol><li>Add PDFs, Markdown, or text files.</li><li>Select the documents you want to ask about.</li><li>Ask a question in your own words.</li><li>Click a citation to read the passage. For a PDF, open the original page too.</li></ol></div></details>
       </div>
-    </header>
-
-    <section class="hero" aria-labelledby="page-title">
-      <h1 id="page-title">Ask the file.<span>Inspect the proof.</span></h1>
-      <div class="hero-note">
-        <strong>Private by default</strong>
-        <p>Choose local documents, ask one precise question, and trace the answer back to its pages.</p>
-      </div>
-    </section>
-
-    <div class="workspace">
-      <aside class="panel library-panel" aria-labelledby="library-title">
-        <div class="panel-heading">
-          <h2 id="library-title">Source library</h2>
-          <span class="format-note">PDF · MD · TXT</span>
-        </div>
-        <div class="panel-body">
-          <form id="upload-form">
-            <label class="field-label" for="file">Add a document</label>
-            <input id="file" class="file-input" type="file" accept=".pdf,.md,.txt" required>
-            <p class="field-help">Re-adding the same filename safely replaces its old index.</p>
-            <button class="primary-action" type="submit">Index document</button>
-          </form>
-
-          <hr class="library-divider">
-          <div class="library-label">
-            <h3>Available sources</h3>
-            <button id="clear-documents" class="text-action" type="button">Clear all</button>
-          </div>
-          <div id="documents" class="document-list" aria-live="polite">
-            <p class="empty-library">Reading the local index…</p>
-          </div>
-        </div>
-      </aside>
-
-      <section class="panel query-panel" aria-labelledby="question-title">
-        <div class="panel-heading">
-          <h2 id="question-title">Question desk</h2>
-          <span id="selection-count" class="selection-count">0 sources selected</span>
-        </div>
-        <div class="panel-body">
-          <form id="query-form">
-            <label class="field-label" for="question">What do you need to know?</label>
-            <textarea id="question" class="question-field" maxlength="2000" placeholder="For example: What skills does Sanjay have?" required></textarea>
-            <div class="ask-row">
-              <p class="privacy-note">Selected sources only · evidence returned with every answer</p>
-              <button class="primary-action" type="submit">Ask selected sources →</button>
-            </div>
-          </form>
-
-          <div id="operation-bar" class="operation-bar" data-tone="ready">
-            <span class="operation-mark" aria-hidden="true"></span>
-            <p id="status" role="status" aria-live="polite">Choose a source to begin.</p>
-          </div>
-
-          <section id="result" class="result" aria-labelledby="answer-title" hidden>
-            <h2 id="answer-title" class="result-label">Grounded answer</h2>
-            <div id="answer" class="answer"></div>
-
-            <section id="citation-audit" class="audit-panel" aria-labelledby="audit-title" hidden>
-              <h3 id="audit-title">Claim checks · Jev observer</h3>
-              <p id="audit-note" class="audit-note">Claims and their cited excerpts are sent to TypeSafe.
-                These estimates leave the answer unchanged. The threshold is experimental.</p>
-              <div id="audits"></div>
-            </section>
-
-            <div class="evidence-header">
-              <div>
-                <span class="evidence-kicker">Citation ledger</span>
-                <h3>Retrieved proof</h3>
-              </div>
-              <p>Each passage shows where the answer came from and how strongly it matched the question.</p>
-            </div>
-            <div id="citations" class="evidence-ledger"></div>
-          </section>
-        </div>
-      </section>
     </div>
-
-    <footer class="page-footer">
-      <span id="privacy-state">Documents and vectors stay on this machine with local providers.</span>
-      <span>Context Foundry · Evidence before answers</span>
-    </footer>
+  </header>
+  <main class="app">
+    <aside class="library" aria-labelledby="library-title">
+      <div class="library-heading"><h2 id="library-title">Your documents</h2><span id="library-count" class="count-badge">0</span><button id="toggle-library" class="text-button mobile-only" type="button" aria-controls="library-content" aria-expanded="true">Hide documents</button></div>
+      <div id="library-content" class="library-content">
+      <p class="library-intro">Choose what goes into your answer.</p>
+      <form id="upload-form">
+        <label class="dropzone" id="dropzone" for="file">
+          <svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>
+          <strong>Drop your documents here</strong><span>or <u>browse files</u></span>
+          <input id="file" class="sr-only" type="file" accept=".pdf,.md,.txt" multiple aria-describedby="format-note">
+        </label>
+        <p id="format-note" class="format-note">PDF, Markdown, or text</p>
+        <div id="queued-files" class="queued-files" hidden></div>
+        <button id="upload-button" class="button button-primary upload-button" type="submit" disabled><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg><span>Add documents</span></button>
+        <p id="upload-status" class="upload-status" role="status" aria-live="polite"></p>
+      </form>
+      <hr class="library-divider">
+      <div class="section-heading"><h3>Included in your search</h3><button id="select-all" class="text-button" type="button" disabled>Select all</button></div>
+      <div id="documents" class="document-list" aria-busy="true"><p class="empty-library">Loading your documents…</p></div>
+      <div class="section-heading"><p class="library-note">Uncheck a document to leave it out.</p><button id="clear-documents" class="text-button" type="button" disabled>Remove all</button></div>
+      </div>
+    </aside>
+    <section class="workspace" aria-labelledby="page-title">
+      <div class="workspace-heading">
+        <p class="eyebrow"><svg class="icon" aria-hidden="true"><use href="#i-book"/></svg>Read between the files</p>
+        <h1 id="page-title">Ask your documents.</h1>
+        <p>Get a clear answer. See exactly where it came from.</p>
+      </div>
+      <form id="query-form" class="question-card">
+        <label class="question-label" for="question">What would you like to know?</label>
+        <textarea id="question" class="question-field" maxlength="2000" placeholder="Ask about a finding, a detail, or something you want explained…" required aria-describedby="selection-count"></textarea>
+        <div class="question-footer">
+          <p class="scope"><span id="selection-count">Add a document to get started.</span><span class="keyboard-hint" id="keyboard-hint">Ctrl + Enter to ask</span></p>
+          <button id="query-button" class="button button-primary" type="submit" disabled>Find answer<svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button>
+        </div>
+      </form>
+      <div class="suggestions" aria-label="Question ideas">
+        <button class="suggestion" type="button" data-question="Summarize the main points in the selected documents.">Summarize the main points</button>
+        <button class="suggestion" type="button" data-question="What are the key findings in the selected documents?">Find the key findings</button>
+        <button class="suggestion" type="button" data-question="What actions or next steps are recommended in the selected documents?">Look for next steps</button>
+      </div>
+      <div id="operation-bar" class="operation-bar" data-tone="ready"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><p id="status" role="status" aria-live="polite">Answers use only the documents you select.</p></div>
+      <div class="reading-layout">
+        <section class="answer-card" aria-labelledby="answer-title">
+          <div class="result-heading"><h2 id="answer-title">Your answer</h2><button id="copy-answer" class="copy-button" type="button" hidden><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg><span>Copy answer</span></button></div>
+          <div id="empty-answer" class="empty-answer"><span class="empty-icon"><svg class="icon" aria-hidden="true"><use href="#i-book"/></svg></span><h3 id="empty-title">Start with a document.</h3><p id="empty-note">Add something you want to understand: a report, a paper, or your own notes.</p><button id="empty-action" class="button button-secondary" type="button">Choose documents<svg class="icon" aria-hidden="true"><use href="#i-arrow"/></svg></button></div>
+          <div id="loading-state" class="loading" hidden><div class="loading-heading"><span class="spinner" aria-hidden="true"></span><span id="loading-title">Searching your selected documents</span></div><p id="loading-note">Looking for passages that match your question.</p><div class="loading-actions"><span id="elapsed" aria-hidden="true">0 seconds</span><button id="cancel-query" class="text-button" type="button">Stop request</button></div></div>
+          <div id="result" hidden><p id="question-echo" class="question-echo"></p><p id="answer-scope" class="answer-scope"></p><div id="answer" class="answer"></div><p id="answer-note" class="answer-note">Follow a numbered citation to check the passage behind a claim.</p>
+            <details id="citation-audit" class="audit-panel" hidden>
+              <summary><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg><span class="audit-summary-copy"><strong id="audit-title">Answer support check</strong><small id="audit-summary">Review how each claim matches its citations.</small></span></summary>
+              <div class="audit-body">
+                <div id="audit-metrics" class="audit-metrics" aria-label="Answer support summary"></div>
+                <p id="audit-note" class="audit-note"></p>
+                <div class="audit-privacy"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><p id="audit-privacy-note"></p></div>
+                <div id="audits" class="audit-list"></div>
+              </div>
+            </details>
+          </div>
+        </section>
+        <aside id="source-reader" class="sources-card" aria-labelledby="sources-title">
+          <div class="sources-heading"><h2 id="sources-title">Back to the source</h2><span id="source-count" class="count-badge">No passages yet</span></div>
+          <div id="source-empty" class="source-empty"><div class="paper-trail" aria-hidden="true"><div class="sheet"></div><div class="sheet sheet-front"><div class="sheet-line"></div><div class="sheet-line"></div><div class="sheet-line"></div><div class="sheet-line"></div></div><span class="bookmark"></span></div><div><h3>The page behind the answer.</h3><p>Click a citation in your answer to read its passage here, then check the original PDF page.</p></div></div>
+          <div id="source-tabs" class="source-tabs" aria-label="Retrieved passages" hidden></div>
+          <div id="citations" class="source-content" hidden></div>
+        </aside>
+      </div>
+      <footer class="workspace-footer"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg><p id="privacy-state">Original files and searchable copies are stored in this workspace.</p></footer>
+    </section>
   </main>
-
-  <script>
-    const status = document.querySelector('#status');
-    const operationBar = document.querySelector('#operation-bar');
-    const result = document.querySelector('#result');
-    const answer = document.querySelector('#answer');
-    const citations = document.querySelector('#citations');
-    const documents = document.querySelector('#documents');
-    const queryButton = document.querySelector('#query-form button');
-    const clearButton = document.querySelector('#clear-documents');
-    const selectionCount = document.querySelector('#selection-count');
-    const fileInput = document.querySelector('#file');
-    const auditPanel = document.querySelector('#citation-audit');
-    const auditList = document.querySelector('#audits');
-    let indexedDocuments = [];
-
-    async function request(url, options = {}) {
-      const response = await fetch(url, options);
-      const body = await response.text();
-      let data = {};
-      try { data = body ? JSON.parse(body) : {}; }
-      catch { if (!response.ok) throw new Error(`Request failed (${response.status})`); }
-      if (!response.ok) throw new Error(data.detail || `Request failed (${response.status})`);
-      return data;
-    }
-
-    function setStatus(message, tone = 'ready') {
-      status.textContent = message;
-      operationBar.dataset.tone = tone;
-    }
-
-    function progress(message) {
-      const started = Date.now();
-      setStatus(`${message} 0s`, 'working');
-      return setInterval(() => {
-        setStatus(`${message} ${Math.floor((Date.now() - started) / 1000)}s`, 'working');
-      }, 1000);
-    }
-
-    function selectedDocumentIds() {
-      return [...documents.querySelectorAll('.document-select:checked')].map(node => node.value);
-    }
-
-    function updateSelectionState() {
-      const count = selectedDocumentIds().length;
-      selectionCount.textContent = `${count} source${count === 1 ? '' : 's'} selected`;
-      queryButton.disabled = count === 0;
-      clearButton.disabled = indexedDocuments.length === 0;
-    }
-
-    function renderDocuments() {
-      documents.replaceChildren();
-      if (!indexedDocuments.length) {
-        const empty = document.createElement('p');
-        empty.className = 'empty-library';
-        empty.textContent = 'Your evidence desk is empty. Add a document above to begin.';
-        documents.append(empty);
-        updateSelectionState();
-        return;
-      }
-
-      for (const item of indexedDocuments) {
-        const row = document.createElement('div');
-        row.className = 'document';
-
-        const checkbox = document.createElement('input');
-        checkbox.className = 'document-select';
-        checkbox.type = 'checkbox';
-        checkbox.checked = true;
-        checkbox.value = item.document_id;
-        checkbox.id = `document-${item.document_id}`;
-        checkbox.addEventListener('change', updateSelectionState);
-
-        const label = document.createElement('label');
-        label.htmlFor = checkbox.id;
-        label.append(document.createTextNode(item.filename));
-        const meta = document.createElement('small');
-        meta.textContent = `${item.pages} page${item.pages === 1 ? '' : 's'} · ${item.chunks} chunks`;
-        label.append(meta);
-
-        const remove = document.createElement('button');
-        remove.type = 'button';
-        remove.className = 'remove-document';
-        remove.textContent = 'Remove';
-        remove.setAttribute('aria-label', `Remove ${item.filename} from the index`);
-        remove.addEventListener('click', async () => {
-          if (!confirm(`Remove ${item.filename} from the local index?`)) return;
-          remove.disabled = true;
-          try {
-            await request(`/api/documents/${encodeURIComponent(item.document_id)}`, {method:'DELETE'});
-            result.hidden = true;
-            await refreshDocuments();
-            setStatus(`Removed ${item.filename} from the local index.`);
-          } catch (error) {
-            setStatus(error.message, 'error');
-            remove.disabled = false;
-          }
-        });
-
-        row.append(checkbox, label, remove);
-        documents.append(row);
-      }
-      updateSelectionState();
-    }
-
-    async function refreshDocuments() {
-      indexedDocuments = await request('/api/documents');
-      renderDocuments();
-    }
-
-    async function refreshProviderState() {
-      const providerState = document.querySelector('#provider-state');
-      const providerLabel = document.querySelector('#provider-label');
-      try {
-        const health = await request('/health');
-        providerLabel.textContent = `${health.embedding_provider} embeddings · ${health.chat_provider} chat`;
-        if (health.jev_mode === 'observe' || health.jev_mode === 'repair') {
-          providerLabel.textContent += health.jev_mode === 'repair' ? ' · Jev citation repair' : ' · Jev observer';
-          document.querySelector('#privacy-state').textContent =
-            health.jev_mode === 'repair'
-              ? 'Vectors stay local. Jev repair checks send retrieved excerpts to TypeSafe.'
-              : 'Vectors stay local. Jev claim audits send cited excerpts to TypeSafe.';
-        }
-        providerState.dataset.ready = 'true';
-      } catch {
-        providerLabel.textContent = 'Provider status unavailable';
-      }
-    }
-
-    document.querySelector('#upload-form').addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const button = event.target.querySelector('button');
-      const form = new FormData();
-      form.append('file', fileInput.files[0]);
-      button.disabled = true;
-      fileInput.disabled = true;
-      const timer = progress('Reading, embedding, and indexing…');
-      try {
-        const data = await request('/api/documents', {method:'POST', body:form});
-        clearInterval(timer);
-        await refreshDocuments();
-        fileInput.value = '';
-        setStatus(`Indexed ${data.filename}: ${data.pages} pages and ${data.chunks} chunks.`);
-      } catch (error) {
-        setStatus(error.message, 'error');
-      } finally {
-        clearInterval(timer);
-        button.disabled = false;
-        fileInput.disabled = false;
-      }
-    });
-
-    function renderAudits(data) {
-      auditList.replaceChildren();
-      auditPanel.hidden = data.audit_mode === 'off';
-      if (auditPanel.hidden) return;
-      const repairing = data.audit_mode === 'repair';
-      document.querySelector('#audit-title').textContent = repairing
-        ? 'Claim checks · Jev citation repair' : 'Claim checks · Jev observer';
-      document.querySelector('#audit-note').textContent = repairing
-        ? 'Claims and retrieved excerpts are sent to TypeSafe. Verified replacements may change citations; claim text stays unchanged. The threshold is experimental.'
-        : 'Claims and their cited excerpts are sent to TypeSafe. These estimates leave the answer unchanged. The threshold is experimental.';
-      if (!data.audits.length) {
-        auditList.textContent = 'No generated claims to audit.';
-        return;
-      }
-      const actions = {keep: 'Keep', withhold: 'Withhold', review: 'Needs review', unavailable: 'Unavailable'};
-      for (const audit of data.audits) {
-        const item = document.createElement('article');
-        item.className = 'claim-audit';
-        const claim = document.createElement('p');
-        claim.textContent = audit.text + ' ' + audit.citations.map(id => '[' + id + ']').join(' ');
-        const action = document.createElement('p');
-        action.className = 'audit-action';
-        action.dataset.action = audit.suggested_action;
-        action.textContent = 'Claim ' + audit.claim_id + ' · Suggested action: ' + actions[audit.suggested_action];
-        const probabilities = document.createElement('p');
-        if (audit.assessment) {
-          const values = audit.assessment.probabilities;
-          probabilities.textContent = 'Support ' + (values.supported * 100).toFixed(1) + '% · ' +
-            'Contradiction ' + (values.contradicted * 100).toFixed(1) + '% · ' +
-            'Insufficient evidence ' + (values.insufficient * 100).toFixed(1) + '%';
-        } else {
-          probabilities.textContent = 'Audit unavailable: ' + audit.error;
-        }
-        const details = document.createElement('details');
-        const summary = document.createElement('summary');
-        summary.textContent = 'Inspect audit details';
-        const trace = document.createElement('pre');
-        trace.textContent = JSON.stringify(audit, null, 2);
-        details.append(summary, trace);
-        item.append(action, claim, probabilities, details);
-        if (audit.original) {
-          const repair = document.createElement('p');
-          const original = audit.original.citations.map(id => '[' + id + ']').join(' ');
-          const current = audit.citations.map(id => '[' + id + ']').join(' ');
-          repair.textContent = original === current
-            ? 'Original citation retained; no verified replacement.'
-            : 'Citation repaired: ' + original + ' → ' + current + '.';
-          item.insertBefore(repair, details);
-        }
-        auditList.append(item);
-      }
-    }
-
-    document.querySelector('#query-form').addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const selected = selectedDocumentIds();
-      if (!selected.length) {
-        setStatus('Select at least one source before asking a question.', 'error');
-        return;
-      }
-
-      queryButton.disabled = true;
-      result.hidden = true;
-      const timer = progress('Retrieving proof and writing the answer…');
-      try {
-        const data = await request('/api/query', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({
-            question:document.querySelector('#question').value,
-            document_ids:selected
-          })
-        });
-        clearInterval(timer);
-        answer.innerHTML = data.answer_html;
-        renderAudits(data);
-        citations.replaceChildren();
-
-        data.citations.forEach((item, index) => {
-          const entry = document.createElement('article');
-          entry.className = 'evidence-item';
-
-          const number = document.createElement('span');
-          number.className = 'evidence-index';
-          number.textContent = String(index + 1).padStart(2, '0');
-
-          const passage = document.createElement('div');
-          const source = document.createElement('div');
-          source.className = 'evidence-source';
-          source.textContent = item.source;
-          const text = document.createElement('div');
-          text.className = 'evidence-text';
-          text.innerHTML = item.text_html;
-          passage.append(source, text);
-
-          const evidenceData = document.createElement('div');
-          evidenceData.className = 'evidence-data';
-          const metric = document.createElement('span');
-          metric.textContent = `Page ${item.page} · Match ${item.score.toFixed(3)}`;
-          const track = document.createElement('span');
-          track.className = 'score-track';
-          const fill = document.createElement('span');
-          fill.className = 'score-fill';
-          fill.style.width = `${Math.max(4, Math.min(100, item.score * 100))}%`;
-          track.append(fill);
-          evidenceData.append(metric, track);
-
-          entry.append(number, passage, evidenceData);
-          citations.append(entry);
-        });
-
-        result.hidden = false;
-        setStatus(`Answer ready with ${data.citations.length} retrieved passage${data.citations.length === 1 ? '' : 's'}.`);
-        const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        result.scrollIntoView({behavior:reducedMotion ? 'auto' : 'smooth', block:'start'});
-      } catch (error) {
-        setStatus(error.message, 'error');
-      } finally {
-        clearInterval(timer);
-        updateSelectionState();
-      }
-    });
-
-    clearButton.addEventListener('click', async () => {
-      if (!indexedDocuments.length || !confirm('Remove every document from the local index?')) return;
-      clearButton.disabled = true;
-      try {
-        await request('/api/documents', {method:'DELETE'});
-        result.hidden = true;
-        await refreshDocuments();
-        setStatus('Cleared the local document index.');
-      } catch (error) {
-        setStatus(error.message, 'error');
-      } finally {
-        updateSelectionState();
-      }
-    });
-
-    Promise.all([refreshDocuments(), refreshProviderState()])
-      .then(() => {
-        if (indexedDocuments.length) {
-          setStatus(`${indexedDocuments.length} indexed source${indexedDocuments.length === 1 ? '' : 's'} ready.`);
-        }
-      })
-      .catch(error => setStatus(error.message, 'error'));
-  </script>
+  <dialog id="remove-dialog" aria-labelledby="remove-title" aria-describedby="remove-note"><h2 id="remove-title">Remove document?</h2><p id="remove-note"></p><form method="dialog" class="dialog-actions"><button class="button button-secondary" value="cancel" autofocus>Keep documents</button><button id="confirm-remove" class="button button-danger" value="remove">Remove document</button></form></dialog>
+  <dialog id="pdf-reader" class="pdf-reader" aria-labelledby="reader-title">
+    <div class="reader-header"><h2 id="reader-title">Original PDF</h2><button id="close-reader" class="icon-button" type="button" aria-label="Close PDF reader"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+    <div class="reader-toolbar"><div class="page-navigation"><button id="previous-page" class="icon-button" type="button" aria-label="Previous page"><svg class="icon" aria-hidden="true"><use href="#i-left"/></svg></button><label for="reader-page">Page</label><input id="reader-page" type="number" min="1" value="1"><span id="reader-total"></span><button id="next-page" class="icon-button" type="button" aria-label="Next page"><svg class="icon" aria-hidden="true"><use href="#i-right"/></svg></button></div><div class="reader-zoom"><button id="zoom-out" class="icon-button" type="button" aria-label="Zoom out" disabled><svg class="icon" aria-hidden="true"><use href="#i-minus"/></svg></button><span id="zoom-label">Fit width</span><button id="zoom-in" class="icon-button" type="button" aria-label="Zoom in"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button></div><a id="download-original" class="button button-secondary" download><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Download original</a></div>
+    <div class="reader-scroll"><p id="reader-status" class="reader-status" role="status" aria-live="polite"></p><img id="reader-image" class="reader-image" alt="" hidden></div>
+  </dialog>
 </body>
 </html>

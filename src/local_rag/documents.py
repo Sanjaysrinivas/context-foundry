@@ -68,11 +68,17 @@ def load_document(filename: str, content: bytes) -> list[Page]:
         raise RAGError(f"Unsupported file type. Use one of: {supported}")
 
     source_sha256 = hashlib.sha256(content).hexdigest()
+    if not content:
+        raise RAGError("This file is empty. Choose a file with text and try again.")
     if suffix == ".pdf":
         try:
             with pymupdf.open(  # type: ignore[no-untyped-call]
                 stream=content, filetype="pdf"
             ) as document:
+                if document.needs_pass:
+                    raise RAGError(
+                        "This PDF is password protected. Save an unlocked copy and add it again."
+                    )
                 extracted = cast(
                     list[dict[str, Any]],
                     pymupdf4llm.to_markdown(document, page_chunks=True, use_ocr=True),
@@ -86,14 +92,33 @@ def load_document(filename: str, content: bytes) -> list[Page]:
                 )
                 for page in extracted
             ]
+        except RAGError:
+            raise
         except Exception as exc:
-            raise RAGError("The PDF could not be read") from exc
+            raise RAGError(
+                "This PDF could not be read. Open it in a PDF reader, "
+                "save a new copy, and try again."
+            ) from exc
     else:
         pages = [Page(filename, 1, content.decode("utf-8", errors="replace"), source_sha256)]
 
     if not any(page.text.strip() for page in pages):
-        raise RAGError("The document contains no extractable text")
+        raise RAGError(
+            "No readable text was found, even after checking scanned pages. "
+            "Try a clearer PDF or a text version of the document."
+        )
     return pages
+
+
+def render_pdf_page(path: Path, page_number: int) -> bytes:
+    """Render the original source page locally, without a browser PDF dependency."""
+    with pymupdf.open(path) as document:  # type: ignore[no-untyped-call]
+        if not 1 <= page_number <= document.page_count:
+            raise RAGError("This page is outside the PDF's page range.")
+        page = document.load_page(page_number - 1)
+        scale = min(2, 1400 / page.rect.width)
+        image = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False)  # type: ignore[no-untyped-call]
+        return cast(bytes, image.tobytes("png"))
 
 
 def chunk_pages(pages: list[Page], chunk_size: int, overlap: int) -> list[Chunk]:
@@ -127,6 +152,7 @@ def chunk_pages(pages: list[Page], chunk_size: int, overlap: int) -> list[Chunk]
                     index,
                     excerpt,
                     page.source_sha256,
+                    len(pages),
                 )
             )
     return chunks
